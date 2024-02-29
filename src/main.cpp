@@ -55,14 +55,18 @@ const char *note_name[] = {
     "None","C", "C#", "D", "D#", "E", "F",
     "F#", "G", "G#", "A", "A#", "B"};
 
-//
+// System state
 struct
-{
-  // input state
+{// input state
   std::bitset<32> inputs;
   // note state
   std::uint32_t note;
+  // rotation state
+  std::uint32_t rotationVariable;
+  // mutex
+  SemaphoreHandle_t mutex;  
 } sysState;
+
 
 uint8_t highestBitSet(std::bitset<12> bits)
 {
@@ -132,17 +136,19 @@ void scanKeysTask(void *pvParameters)
 {
 
   const TickType_t xFrequency = 50 / portTICK_PERIOD_MS;
-
   TickType_t xLastWakeTime = xTaskGetTickCount();
+
+  // Variables to hold the previous and current state of the knob signals
+  uint8_t previousKnobState = 0; // Initial state for knob signals {B,A} set to 00
+  int rotationVariable = 0; // This variable will keep track of the knob position
 
   while (1)
   {
-
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
     std::bitset<32> inputs;
 
     // Key scanning loop
-    for (int rowIdx = 0; rowIdx < 3; rowIdx++)
+    for (int rowIdx = 0; rowIdx < 4; rowIdx++)
     {
       setRow(rowIdx);                                   // Set row select address
       delayMicroseconds(3);                             // Wait for row select to settle
@@ -150,30 +156,63 @@ void scanKeysTask(void *pvParameters)
       inputs |= (rowInputs.to_ulong() << (rowIdx * 4)); // Copy results into inputs bitset
     }
 
-    // Store the result in sysState.inputs
-    sysState.inputs = inputs;
-
-    // Check state of each key in inputs
-    if ((inputs.to_ulong() & 0xFFF) == 0xFFF)
+    // Decoding knob 3 using the inputs from row 3, columns 0 and 1
+    uint8_t currentKnobState = (inputs[3 * 4 + 1] << 1) | inputs[3 * 4]; // {B,A} for knob 3
+    int change = 0; // Variable to track the change in rotation
+    
+    // State transition decoding for knob 3
+    switch (previousKnobState << 2 | currentKnobState) // Combine previous and current state
     {
-      __atomic_store_n(&currentStepSize, 0, __ATOMIC_RELAXED);
-      sysState.note = 0;
+      case 0b0001: change = +1; break;
+      case 0b0100: change = -1; break;
+      case 0b1011: change = -1; break;
+      case 0b1110: change = +1; break;
+      // Handle 'impossible' transitions by assuming the same direction as the last legal transition
+      case 0b0011:
+      case 0b1100:
+        change = (rotationVariable > 0) ? +1 : -1;
+        break;
     }
-    else
-    {
-      uint32_t tempStepSize;
-      uint32_t note = 0;
-      for (int i = 0; i < 12; i++)
-      {
-        if (inputs[i] == 0)
-        {
+
+    rotationVariable += change; // Update the rotation variable
+
+    // Store the current state as the previous state for the next iteration
+    previousKnobState = currentKnobState;
+
+    // Critical section for updating the shared state
+    xSemaphoreTake(sysState.mutex, portMAX_DELAY);
+    sysState.rotationVariable = rotationVariable; // Store the rotation variable in sysState
+    xSemaphoreGive(sysState.mutex);
+
+
+    // Perform read and conditional operations first
+    uint32_t tempStepSize = 0;
+    uint32_t note = 0;
+    bool updateNeeded = false;
+
+    if ((inputs.to_ulong() & 0xFFF) == 0xFFF) {
+      tempStepSize = 0;
+      note = 0;
+      updateNeeded = true; // Indicates that store operations are needed
+    } else {
+      for (int i = 0; i < 12; i++) {
+        if (inputs[i] == 0) {
           tempStepSize = stepSizes[i];
           note = i+1;
+          updateNeeded = true; // Indicates that store operations are needed
+          break; // Assuming you only need the first occurrence
         }
       }
+    }
+
+    // Use mutex to protect all the store instructions
+    if (updateNeeded) {
+      xSemaphoreTake(sysState.mutex, portMAX_DELAY);
       __atomic_store_n(&currentStepSize, tempStepSize, __ATOMIC_RELAXED);
       __atomic_store_n(&sysState.note, note, __ATOMIC_RELAXED);
+      xSemaphoreGive(sysState.mutex);
     }
+
   }
 }
 
@@ -190,11 +229,16 @@ void displayUpdateTask(void *pvParameters)
     // Update display
     u8g2.clearBuffer();                   // clear the internal memory
     u8g2.setFont(u8g2_font_ncenB08_tr);   // choose a suitable font
-    u8g2.drawStr(2, 10, "Hello World!"); // write something to the internal memory
+    // u8g2.drawStr(2, 10, "Hello World!"); // write something to the internal memory
 
     // Print the notes state
-    u8g2.setCursor(2, 20);
+    u8g2.setCursor(2, 10);
     u8g2.printf("Notes: %s", note_name[sysState.note]);
+    u8g2.sendBuffer(); // transfer internal memory to the display
+
+    // Print the rotation state
+    u8g2.setCursor(2, 20);
+    u8g2.printf("Rotation: %d", sysState.rotationVariable);
     u8g2.sendBuffer(); // transfer internal memory to the display
 
     // Toggle LED
@@ -248,6 +292,10 @@ void setup()
   sampleTimer->attachInterrupt(sampleISR);
   sampleTimer->resume();
 
+  // Mutex handle
+  sysState.mutex = xSemaphoreCreateMutex();
+
+  // Set up task handles
   TaskHandle_t scanKeysHandle = NULL;
   xTaskCreate(
       scanKeysTask, /* Function that implements the task */
