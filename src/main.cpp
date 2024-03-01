@@ -312,9 +312,9 @@ void setup()
   u8g2.begin();
   setOutMuxBit(DEN_BIT, HIGH); // Enable display power supply
 
-  // Initialise UART
-  Serial.begin(9600);
-  Serial.println("Hello World");
+    // Initialise UART
+    Serial.begin(115200);
+    Serial.println("Hello World");
 
   for (int i = 0; i < 12; i++)
   {
