@@ -39,93 +39,36 @@ void sampleISR()
 // Function to scan the keyboard
 void scanKeysTask(void *pvParameters)
 {
+    const TickType_t xInterval = 10 / portTICK_PERIOD_MS;
+    TickType_t xLastWakeTime = xTaskGetTickCount();
 
-  const TickType_t xFrequency = 50 / portTICK_PERIOD_MS;
-  TickType_t xLastWakeTime = xTaskGetTickCount();
+    QuadratureEncoder knobs[4];
 
-  // Variables to hold the previous and current state of the knob signals
-  uint8_t previousKnobState = 0; // Initial state for knob signals {B,A} set to 00
-  int rotationVariable = 0; // This variable will keep track of the knob position
-  int lastChange = 0; // Variable to keep track of the last direction change
+    while (true) {
+        vTaskDelayUntil(&xLastWakeTime, xInterval);
 
-  while (1)
-  {
-    vTaskDelayUntil(&xLastWakeTime, xFrequency);
-    std::bitset<32> inputs;
-
-    // Key scanning loop
-    for (int rowIdx = 0; rowIdx < 4; rowIdx++)
-    {
-      setRow(rowIdx);                                   // Set row select address
-      delayMicroseconds(3);                             // Wait for row select to settle
-      std::bitset<4> rowInputs = readCols();            // Read columns
-      inputs |= (rowInputs.to_ulong() << (rowIdx * 4)); // Copy results into inputs bitset
-    }
-
-    // Decoding knob 3 using the inputs from row 3, columns 0 and 1
-    uint8_t currentKnobState = (inputs[3 * 4 + 1] << 1) | inputs[3 * 4]; // {B,A} for knob 3
-    int change = 0; // Variable to track the change in rotation
-
-    // State transition decoding for knob 3
-    int combinedState = (previousKnobState << 2) | currentKnobState; // Combine previous and current state
-
-    switch (combinedState)
-    {
-      // Cases for valid transitions
-      case 0b0001: // 00 -> 01
-      case 0b1110: // 11 -> 10
-        if (lastChange != combinedState) { // Check if the last change was different to avoid double counting
-          change = +1;
-          lastChange = combinedState;
+        // Scan input matrix
+        std::bitset<32> inputs;
+        for (int rowIdx = 0; rowIdx < 8; rowIdx++) {
+            selectRow(rowIdx);
+            auto rowInputs = readRow();
+            inputs |= (rowInputs.to_ulong() << (rowIdx * 4));
         }
-        break;
-      case 0b0100: // 01 -> 00
-      case 0b1011: // 10 -> 11
-        if (lastChange != combinedState) {
-          change = -1;
-          lastChange = combinedState;
+        inputs.flip(); // Inputs are active-low; flip back to positive logic
+
+        // Decode knobs
+        for (int knobIdx = 0; knobIdx < 4; knobIdx++) {
+            uint8_t knob_signal_bitpos = 18 - (2 * knobIdx);
+            uint8_t knob_signals = BitUtils::extractBitField(inputs.to_ulong(), knob_signal_bitpos, 2);
+            knobs[knobIdx].update(knob_signals);
         }
-        break;
-      // Handle 'impossible' transitions by assuming the same direction as the last legal transition
-      case 0b0011: // 00 -> 11
-      case 0b1100: // 11 -> 00
-        // Guess the direction based on the last change
-        change = (lastChange > 0) ? +1 : -1;
-        break;
-      // Add cases for other impossible transitions if they are to be considered
-      // e.g., 01 -> 10 and 10 -> 01
-      case 0b0110: // 01 -> 10 (impossible transition)
-      case 0b1001: // 10 -> 01 (impossible transition)
-        change = (lastChange > 0) ? +1 : -1;
-        break;
-      // No change or intermediate states do not modify the rotation variable
-      case 0b0000: // No change
-      case 0b0101: // No change
-      case 0b1010: // No change
-      case 0b1111: // No change
-      case 0b0010: // Intermediate state
-      case 0b1000: // Intermediate state
-      case 0b0111: // Intermediate state
-      case 0b1101: // Intermediate state
-        change = 0;
-        break;
-    }
 
-    // Update the rotation variable and the lastChange
-    if (change != 0) {
-      rotationVariable += change; // Update the rotation variable
-      lastChange = change; // Keep track of the last direction change
-    }
-
-    rotationVariable += change; // Update the rotation variable
-
-    // Store the current state as the previous state for the next iteration
-    previousKnobState = currentKnobState;
-
-    // Critical section for updating the shared state
-    xSemaphoreTake(sysState.mutex, portMAX_DELAY);
-    sysState.rotationVariable = rotationVariable; // Store the rotation variable in sysState
-    xSemaphoreGive(sysState.mutex);
+        // Critical section for updating the shared state
+        xSemaphoreTake(sysState.mutex, portMAX_DELAY);
+        for (int i = 0; i < 4; i++) {
+            sysState.knobPos[i] = knobs[i].getPosition() / 2;
+        }
+        xSemaphoreGive(sysState.mutex);
 
 
     // Perform read and conditional operations first
