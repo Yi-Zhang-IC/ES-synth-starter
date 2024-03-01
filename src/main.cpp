@@ -1,11 +1,18 @@
 #include <Arduino.h>
 #include <U8g2lib.h>
-#include <bitset>
 #include <HardwareTimer.h>
 #include <STM32FreeRTOS.h>
 
+#include <bitset>
+#include <optional>
+#include <array>
+
+#include "BoardIO.hpp"
+#include "QuadratureEncoder.hpp"
+#include "BitUtils.hpp"
 
 U8G2_SSD1305_128X32_ADAFRUIT_F_HW_I2C u8g2(U8G2_R0);
+HardwareTimer audioSampleClock;
 
 volatile uint32_t currentStepSize = 0;
 
@@ -89,31 +96,30 @@ void scanKeysTask(void *pvParameters)
 // Function to update the display
 void displayUpdateTask(void *pvParameters)
 {
-  const TickType_t xFrequency = 100 / portTICK_PERIOD_MS;
-  TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xInterval = 100 / portTICK_PERIOD_MS;
+    TickType_t xLastWakeTime = xTaskGetTickCount();
 
-  while (1)
-  {
-    vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    while (1) {
+        vTaskDelayUntil(&xLastWakeTime, xInterval);
 
-    // Update display
-    u8g2.clearBuffer();                   // clear the internal memory
-    u8g2.setFont(u8g2_font_ncenB08_tr);   // choose a suitable font
-    // u8g2.drawStr(2, 10, "Hello World!"); // write something to the internal memory
+        u8g2.clearBuffer(); // clear the internal memory
+        u8g2.setFont(u8g2_font_ncenB08_tr); // choose a suitable font
 
-    // Print the notes state
-    u8g2.setCursor(2, 10);
-    u8g2.printf("Notes: %s", note_name[sysState.note]);
-    u8g2.sendBuffer(); // transfer internal memory to the display
+        auto displayedNoteName = sysState.noteIdx.has_value() ? noteNames[sysState.noteIdx.value()] : "None";
+        u8g2.setCursor(0, 8);
+        u8g2.printf("Note: %s", displayedNoteName.c_str());
 
-    // Print the rotation state
-    u8g2.setCursor(2, 20);
-    u8g2.printf("Rotation: %d", sysState.rotationVariable);
-    u8g2.sendBuffer(); // transfer internal memory to the display
+        u8g2.setCursor(0, 19);
+        u8g2.printf("Knobs: %d, %d, %d, %d", sysState.knobPos[0], sysState.knobPos[1], sysState.knobPos[2],
+                    sysState.knobPos[3]);
 
-    // Toggle LED
-    digitalToggle(LED_BUILTIN);
-  }
+        u8g2.setCursor(0, 30);
+        u8g2.printf("Volume: 12%%");
+
+        u8g2.sendBuffer();
+
+        digitalToggle(LED_BUILTIN);
+    }
 }
 
 void setup()
