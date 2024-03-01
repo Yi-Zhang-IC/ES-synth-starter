@@ -17,24 +17,25 @@ HardwareTimer audioSampleClock;
 volatile uint32_t currentStepSize = 0;
 
 // Phase accumulator increment sizes for each note
-const uint32_t stepSizes[] = {51076057,  54113197,  57330935,  60740010,  64351799,  68178356,  72232452,  76527617,
-                              81078186,  85899346,  91007187,  96418756,  102152113, 108226394, 114661870, 121480020,
-                              128703598, 136356712, 144464904, 153055234, 162156372, 171798692, 182014374, 192837512,
-                              204304227, 216452788, 229323741, 242960040, 257407196, 272713424, 288929808, 306110469,
-                              324312744, 343597384, 364028747, 385675023};
+const uint32_t stepSizes[] = { 51076057, 54113197, 57330935, 60740010, 64351799, 68178356, 72232452, 76527617, 81078186,
+    85899346, 91007187, 96418756, 102152113, 108226394, 114661870, 121480020, 128703598, 136356712, 144464904,
+    153055234, 162156372, 171798692, 182014374, 192837512, 204304227, 216452788, 229323741, 242960040, 257407196,
+    272713424, 288929808, 306110469, 324312744, 343597384, 364028747, 385675023 };
 
-const std::array<std::string, 12> noteNames = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+const std::array<std::string, 12> noteNames = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
 
 struct {
     SemaphoreHandle_t mutex;
     std::bitset<32> keys; // input state
     std::array<int32_t, 4> knobPos; // rotation state
-    std::optional<uint8_t> noteIdx; // note state
-} sysState;
+} inputState;
 
-// Function to update the phase accumulator and set the analogue output voltage
-// at each sample interval
-void sampleISR()
+struct {
+    SemaphoreHandle_t mutex;
+    std::optional<uint8_t> noteIdx; // note state
+} audioState;
+
+void updateAudioSample()
 {
     static uint32_t phaseAcc = 0;
 
@@ -46,8 +47,8 @@ void sampleISR()
 // Function to scan the keyboard
 void scanKeysTask(void *pvParameters)
 {
-    const TickType_t xInterval = 10 / portTICK_PERIOD_MS;
-    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const auto xInterval = 10 / portTICK_PERIOD_MS;
+    auto xLastWakeTime = xTaskGetTickCount();
 
     QuadratureEncoder knobs[4];
 
@@ -71,11 +72,11 @@ void scanKeysTask(void *pvParameters)
         }
 
         // Critical section for updating the shared state
-        xSemaphoreTake(sysState.mutex, portMAX_DELAY);
+        xSemaphoreTake(inputState.mutex, portMAX_DELAY);
         for (int i = 0; i < 4; i++) {
-            sysState.knobPos[i] = knobs[i].getPosition() / 2;
+            inputState.knobPos[i] = knobs[i].getPosition() / 2;
         }
-        xSemaphoreGive(sysState.mutex);
+        xSemaphoreGive(inputState.mutex);
 
         auto pianoKeys = inputs.to_ulong() & 0x00000FFF;
         std::optional<uint8_t> noteIdx = 0;
@@ -86,18 +87,20 @@ void scanKeysTask(void *pvParameters)
         }
 
         auto newStepSize = noteIdx.has_value() ? stepSizes[noteIdx.value()] : 0;
-        xSemaphoreTake(sysState.mutex, portMAX_DELAY);
+        xSemaphoreTake(inputState.mutex, portMAX_DELAY);
         currentStepSize = newStepSize;
-        sysState.noteIdx = noteIdx;
-        xSemaphoreGive(sysState.mutex);
+        xSemaphoreGive(inputState.mutex);
+        xSemaphoreTake(audioState.mutex, portMAX_DELAY);
+        audioState.noteIdx = noteIdx;
+        xSemaphoreGive(audioState.mutex);
     }
 }
 
 // Function to update the display
 void displayUpdateTask(void *pvParameters)
 {
-    const TickType_t xInterval = 100 / portTICK_PERIOD_MS;
-    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const auto xInterval = 100 / portTICK_PERIOD_MS;
+    auto xLastWakeTime = xTaskGetTickCount();
 
     while (1) {
         vTaskDelayUntil(&xLastWakeTime, xInterval);
@@ -105,13 +108,13 @@ void displayUpdateTask(void *pvParameters)
         u8g2.clearBuffer(); // clear the internal memory
         u8g2.setFont(u8g2_font_ncenB08_tr); // choose a suitable font
 
-        auto displayedNoteName = sysState.noteIdx.has_value() ? noteNames[sysState.noteIdx.value()] : "None";
+        auto displayedNoteName = audioState.noteIdx.has_value() ? noteNames[audioState.noteIdx.value() % 12] : "None";
         u8g2.setCursor(0, 8);
         u8g2.printf("Note: %s", displayedNoteName.c_str());
 
         u8g2.setCursor(0, 19);
-        u8g2.printf("Knobs: %d, %d, %d, %d", sysState.knobPos[0], sysState.knobPos[1], sysState.knobPos[2],
-                    sysState.knobPos[3]);
+        u8g2.printf("Knobs: %d, %d, %d, %d", inputState.knobPos[0], inputState.knobPos[1], inputState.knobPos[2],
+            inputState.knobPos[3]);
 
         u8g2.setCursor(0, 30);
         u8g2.printf("Volume: 12%%");
@@ -155,11 +158,12 @@ void setup()
     analogWriteResolution(32 /* bits */); // To eliminate conversions to uint8_t
     audioSampleClock.setup(TIM6);
     audioSampleClock.setOverflow(22000, HERTZ_FORMAT);
-    audioSampleClock.attachInterrupt(sampleISR);
+    audioSampleClock.attachInterrupt(updateAudioSample);
     audioSampleClock.resume();
 
     // Mutex handle
-    sysState.mutex = xSemaphoreCreateMutex();
+    inputState.mutex = xSemaphoreCreateMutex();
+    audioState.mutex = xSemaphoreCreateMutex();
 
     // Set up task handles
     TaskHandle_t scanKeysHandle = nullptr;

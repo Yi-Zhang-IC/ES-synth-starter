@@ -52,3 +52,7 @@ AlwaysBreakAfterReturnType: None
 AlwaysBreakBeforeMultilineStrings: true
 AccessModifierOffset: -4
 ColumnLimit: 120
+BinPackArguments: true
+BinPackParameters: true
+Cpp11BracedListStyle: false
+AlignAfterOpenBracket: DontAlign
