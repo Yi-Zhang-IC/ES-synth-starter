@@ -26,12 +26,14 @@ struct {
 } sysState;
 
 // Function to update the phase accumulator and set the analogue output voltage
+// at each sample interval
 void sampleISR()
 {
-  static uint32_t phaseAcc = 0;
-  phaseAcc += currentStepSize;
-  int32_t Vout = (phaseAcc >> 24) - 128;
-  analogWrite(OUTR_PIN, (Vout + 128) / 8);
+    static uint32_t phaseAcc = 0;
+
+    phaseAcc += currentStepSize;
+    int32_t Vout = (phaseAcc - 0x80000000) / 8;
+    analogWrite(OUTR_PIN, Vout + 0x80000000);
 }
 
 // Function to scan the keyboard
@@ -217,19 +219,11 @@ void setup()
     Serial.begin(115200);
     Serial.println("Hello World");
 
-  for (int i = 0; i < 12; i++)
-  {
-    Serial.printf("Step size for note %d: %d\n", i, stepSizes[i]);
-  }
-
-  // Create timer instance
-  TIM_TypeDef *Instance = TIM1;
-  HardwareTimer *sampleTimer = new HardwareTimer(Instance);
-
-  // Configure timer
-  sampleTimer->setOverflow(22000, HERTZ_FORMAT);
-  sampleTimer->attachInterrupt(sampleISR);
-  sampleTimer->resume();
+    analogWriteResolution(32 /* bits */); // To eliminate conversions to uint8_t
+    audioSampleClock.setup(TIM6);
+    audioSampleClock.setOverflow(22000, HERTZ_FORMAT);
+    audioSampleClock.attachInterrupt(sampleISR);
+    audioSampleClock.resume();
 
     // Mutex handle
     sysState.mutex = xSemaphoreCreateMutex();
