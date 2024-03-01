@@ -70,36 +70,20 @@ void scanKeysTask(void *pvParameters)
         }
         xSemaphoreGive(sysState.mutex);
 
-
-    // Perform read and conditional operations first
-    uint32_t tempStepSize = 0;
-    uint32_t note = 0;
-    bool updateNeeded = false;
-
-    if ((inputs.to_ulong() & 0xFFF) == 0xFFF) {
-      tempStepSize = 0;
-      note = 0;
-      updateNeeded = true; // Indicates that store operations are needed
-    } else {
-      for (int i = 0; i < 12; i++) {
-        if (inputs[i] == 0) {
-          tempStepSize = stepSizes[i];
-          note = i+1;
-          updateNeeded = true; // Indicates that store operations are needed
-          break; // Assuming you only need the first occurrence
+        auto pianoKeys = inputs.to_ulong() & 0x00000FFF;
+        std::optional<uint8_t> noteIdx = 0;
+        if (!pianoKeys) {
+            noteIdx = {};
+        } else {
+            noteIdx = BitUtils::highestBitSet(pianoKeys);
         }
-      }
-    }
 
-    // Use mutex to protect all the store instructions
-    if (updateNeeded) {
-      xSemaphoreTake(sysState.mutex, portMAX_DELAY);
-      __atomic_store_n(&currentStepSize, tempStepSize, __ATOMIC_RELAXED);
-      __atomic_store_n(&sysState.note, note, __ATOMIC_RELAXED);
-      xSemaphoreGive(sysState.mutex);
+        auto newStepSize = noteIdx.has_value() ? stepSizes[noteIdx.value()] : 0;
+        xSemaphoreTake(sysState.mutex, portMAX_DELAY);
+        currentStepSize = newStepSize;
+        sysState.noteIdx = noteIdx;
+        xSemaphoreGive(sysState.mutex);
     }
-
-  }
 }
 
 // Function to update the display
