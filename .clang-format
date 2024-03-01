@@ -1,0 +1,54 @@
+---
+InsertNewlineAtEOF: true
+InsertBraces: true
+Language: Cpp
+LineEnding: LF
+UseTab: Never
+TabWidth: 4
+Standard: Auto
+SpacesInSquareBrackets: false
+SpacesInParentheses: false
+SpacesInConditionalStatement: false
+SpacesInContainerLiterals: false
+SpacesInCStyleCastParentheses: false
+SpacesInAngles: Never
+SpaceInEmptyParentheses: false
+SpaceInEmptyBlock: false
+SpaceBeforeSquareBrackets: false
+SpaceBeforeRangeBasedForLoopColon: false
+SpaceBeforeParens: ControlStatements
+SpaceBeforeInheritanceColon: false
+SpaceBeforeCtorInitializerColon: false
+SpaceBeforeCpp11BracedList: false
+SpaceBeforeCaseColon: false
+SpaceBeforeAssignmentOperators: true
+SpaceAroundPointerQualifiers: Before
+SpaceAfterCStyleCast: false
+SpaceAfterLogicalNot: false
+SpaceAfterTemplateKeyword: false
+SortIncludes: Never
+ReflowComments: false
+IndentWidth: 4
+IndentCaseLabels: false
+IndentAccessModifiers: false
+AlignConsecutiveAssignments:
+  Enabled: false
+AlignConsecutiveDeclarations:
+  Enabled: false
+AlignConsecutiveBitFields:
+  Enabled: false
+AlignConsecutiveMacros:
+  Enabled: false
+AlignEscapedNewlines: Left
+AlignTrailingComments:
+  Kind: Never
+BreakBeforeBraces: Linux
+InsertTrailingCommas: None
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortLambdasOnASingleLine: Inline
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Empty
+AlwaysBreakAfterReturnType: None
+AlwaysBreakBeforeMultilineStrings: true
+AccessModifierOffset: -4
+ColumnLimit: 120
