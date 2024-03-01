@@ -163,22 +163,11 @@ void setup()
 
     // Set up task handles
     TaskHandle_t scanKeysHandle = nullptr;
-    xTaskCreate(scanKeysTask, /* Function that implements the task */
-                "scanKeys", /* Text name for the task */
-                64, /* Stack size in words, not bytes */
-                NULL, /* Parameter passed into the task */
-                2, /* Task priority */
-                &scanKeysHandle);
+    xTaskCreate(scanKeysTask, "scanKeys", 64, nullptr, 2, &scanKeysHandle);
 
     TaskHandle_t displayUpdateHandle = nullptr;
-    xTaskCreate(displayUpdateTask, /* Function that implements the task */
-                "displayUpdate", /* Text name for the task */
-                256, /* Stack size in words, not bytes */
-                NULL, /* Parameter passed into the task */
-                1, /* Task priority */
-                &displayUpdateHandle);
+    xTaskCreate(displayUpdateTask, "displayUpdate", 256, nullptr, 1, &displayUpdateHandle);
 
-    // Set up FreeRTOS task
     vTaskStartScheduler();
 }
 
