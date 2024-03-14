@@ -11,6 +11,7 @@
 #include "BoardIO.hpp"
 #include "QuadratureEncoder.hpp"
 #include "BitUtils.hpp"
+#include "Audio.hpp"
 
 U8G2_SSD1305_128X32_ADAFRUIT_F_HW_I2C u8g2(U8G2_R0);
 
@@ -19,16 +20,7 @@ const uint32_t canTxId = 0x123;
 QueueHandle_t canRxQueue, canTxQueue;
 
 HardwareTimer audioSampleClock;
-
 volatile uint32_t currentStepSize = 0;
-
-// Phase accumulator increment sizes for each note
-const uint32_t stepSizes[] = { 51076057, 54113197, 57330935, 60740010, 64351799, 68178356, 72232452, 76527617, 81078186,
-    85899346, 91007187, 96418756, 102152113, 108226394, 114661870, 121480020, 128703598, 136356712, 144464904,
-    153055234, 162156372, 171798692, 182014374, 192837512, 204304227, 216452788, 229323741, 242960040, 257407196,
-    272713424, 288929808, 306110469, 324312744, 343597384, 364028747, 385675023 };
-
-const std::array<std::string, 12> noteNames = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
 
 struct {
     SemaphoreHandle_t mutex;
@@ -102,7 +94,6 @@ void scanKeysTask(void *pvParameters)
     }
 }
 
-// Function to update the display
 void displayUpdateTask(void *pvParameters)
 {
     const auto xInterval = 100 / portTICK_PERIOD_MS;
