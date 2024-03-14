@@ -95,7 +95,7 @@ uint32_t CAN_Start() {
 }
 
 
-uint32_t CAN_TX(uint32_t ID, uint8_t data[8]) {
+uint32_t CAN_TX(uint32_t ID, uint8_t data[8], uint8_t len) {
 
   //Set up the message header
   CAN_TxHeaderTypeDef txHeader = {
@@ -103,7 +103,7 @@ uint32_t CAN_TX(uint32_t ID, uint8_t data[8]) {
     0,                          //Ext ID = 0
     CAN_ID_STD,                 //Use Standard ID
     CAN_RTR_DATA,               //Data Frame
-    8,                          //Send 8 bytes
+    len & 0x7,                  //Send `len` bytes
     DISABLE                     //No time triggered mode
   };
 
@@ -120,7 +120,7 @@ uint32_t CAN_CheckRXLevel() {
 }
 
 
-uint32_t CAN_RX(uint32_t &ID, uint8_t data[8]) {
+uint32_t CAN_RX(uint32_t &ID, uint8_t data[8], uint8_t &len) {
   CAN_RxHeaderTypeDef rxHeader;
 
   //Wait for message in FIFO
@@ -131,6 +131,8 @@ uint32_t CAN_RX(uint32_t &ID, uint8_t data[8]) {
 
   //Store the ID from the header
   ID = rxHeader.StdId;
+
+  len = rxHeader.DLC;
 
   return result;
 }
