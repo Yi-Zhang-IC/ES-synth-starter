@@ -26,13 +26,10 @@ const std::array<std::string, 12> noteNames = { "C", "C#", "D", "D#", "E", "F", 
 
 struct {
     SemaphoreHandle_t mutex;
-    std::bitset<32> keys; // input state
-    std::array<int32_t, 4> knobPos; // rotation state
-} inputState;
+    std::optional<uint8_t> noteIdx;
 
-struct {
-    SemaphoreHandle_t mutex;
-    std::optional<uint8_t> noteIdx; // note state
+    uint8_t volumePercent;
+    enum { SAWTOOTH, TRIANGLE, SINE } waveform;
 } audioState;
 
 void updateAudioSample()
@@ -50,7 +47,8 @@ void scanKeysTask(void *pvParameters)
     const auto xInterval = 10 / portTICK_PERIOD_MS;
     auto xLastWakeTime = xTaskGetTickCount();
 
-    QuadratureEncoder knobs[4];
+    static std::bitset<12> pianoKeys = 0;
+    std::array<QuadratureEncoder, 4> knobs;
 
     while (true) {
         vTaskDelayUntil(&xLastWakeTime, xInterval);
@@ -71,28 +69,11 @@ void scanKeysTask(void *pvParameters)
             knobs[knobIdx].update(knob_signals);
         }
 
-        // Critical section for updating the shared state
-        xSemaphoreTake(inputState.mutex, portMAX_DELAY);
-        for (int i = 0; i < 4; i++) {
-            inputState.knobPos[i] = knobs[i].getPosition() / 2;
+        uint8_t canRxMsg[8];
+        uint32_t canRxId;
+        while (CAN_CheckRXLevel()) {
+            CAN_RX(canRxId, canRxMsg);
         }
-        xSemaphoreGive(inputState.mutex);
-
-        auto pianoKeys = inputs.to_ulong() & 0x00000FFF;
-        std::optional<uint8_t> noteIdx = 0;
-        if (!pianoKeys) {
-            noteIdx = {};
-        } else {
-            noteIdx = BitUtils::highestBitSet(pianoKeys);
-        }
-
-        auto newStepSize = noteIdx.has_value() ? stepSizes[noteIdx.value()] : 0;
-        xSemaphoreTake(inputState.mutex, portMAX_DELAY);
-        currentStepSize = newStepSize;
-        xSemaphoreGive(inputState.mutex);
-        xSemaphoreTake(audioState.mutex, portMAX_DELAY);
-        audioState.noteIdx = noteIdx;
-        xSemaphoreGive(audioState.mutex);
     }
 }
 
@@ -113,8 +94,7 @@ void displayUpdateTask(void *pvParameters)
         u8g2.printf("Note: %s", displayedNoteName.c_str());
 
         u8g2.setCursor(0, 19);
-        u8g2.printf("Knobs: %d, %d, %d, %d", inputState.knobPos[0], inputState.knobPos[1], inputState.knobPos[2],
-            inputState.knobPos[3]);
+        u8g2.printf("Knobs: ---");
 
         u8g2.setCursor(0, 30);
         u8g2.printf("Volume: 12%%");
