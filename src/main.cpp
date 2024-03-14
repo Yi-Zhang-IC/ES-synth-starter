@@ -175,11 +175,4 @@ void setup()
     vTaskStartScheduler();
 }
 
-void loop()
-{
-    // This should never be reached
-    while (1) {
-        Serial.println("Error: loop() should never be reached");
-        delay(1000);
-    }
-}
+void loop() {}
