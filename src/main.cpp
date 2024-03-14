@@ -136,12 +136,12 @@ void setup()
     pinMode(OUTR_PIN, OUTPUT);
     pinMode(LED_BUILTIN, OUTPUT);
 
-    pinMode(C0_PIN, INPUT);
-    pinMode(C1_PIN, INPUT);
-    pinMode(C2_PIN, INPUT);
-    pinMode(C3_PIN, INPUT);
-    pinMode(JOYX_PIN, INPUT);
-    pinMode(JOYY_PIN, INPUT);
+    pinMode(C0_PIN, INPUT_PULLUP);
+    pinMode(C1_PIN, INPUT_PULLUP);
+    pinMode(C2_PIN, INPUT_PULLUP);
+    pinMode(C3_PIN, INPUT_PULLUP);
+    pinMode(JOYX_PIN, INPUT_ANALOG);
+    pinMode(JOYY_PIN, INPUT_ANALOG);
 
     // Initialise display
     setOutMuxBit(DRST_BIT, LOW); // Assert display logic reset
