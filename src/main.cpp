@@ -2,6 +2,7 @@
 #include <U8g2lib.h>
 #include <HardwareTimer.h>
 #include <STM32FreeRTOS.h>
+#include <ES_CAN.h>
 
 #include <bitset>
 #include <optional>
@@ -12,6 +13,11 @@
 #include "BitUtils.hpp"
 
 U8G2_SSD1305_128X32_ADAFRUIT_F_HW_I2C u8g2(U8G2_R0);
+
+const uint32_t canTxId = 0x123;
+
+QueueHandle_t canRxQueue, canTxQueue;
+
 HardwareTimer audioSampleClock;
 
 volatile uint32_t currentStepSize = 0;
@@ -32,16 +38,22 @@ struct {
     enum { SAWTOOTH, TRIANGLE, SINE } waveform;
 } audioState;
 
-void updateAudioSample()
+void isrUpdateAudioSample()
 {
     static uint32_t phaseAcc = 0;
 
     phaseAcc += currentStepSize;
-    int32_t Vout = (phaseAcc - 0x80000000) / 8;
+    int32_t Vout = (phaseAcc - 0x80000000);
     analogWrite(OUTR_PIN, Vout + 0x80000000);
 }
 
-// Function to scan the keyboard
+void isrCanRx (void) {
+	uint32_t ID;
+	uint8_t RX_Message_ISR[8];
+	CAN_RX(ID, RX_Message_ISR);
+	xQueueSendFromISR(canRxQueue, RX_Message_ISR, NULL);
+}
+
 void scanKeysTask(void *pvParameters)
 {
     const auto xInterval = 10 / portTICK_PERIOD_MS;
@@ -60,7 +72,20 @@ void scanKeysTask(void *pvParameters)
             auto rowInputs = readRow();
             inputs |= (rowInputs.to_ulong() << (rowIdx * 4));
         }
-        inputs.flip(); // Inputs are active-low; flip back to positive logic
+        inputs.flip(); // Inputs are active-low; convert to positive logic
+
+        // Get change in piano keys and queue messages
+        auto newPianoKeys = inputs & std::bitset<32>(0x00000FFF);
+        for (int i = 0; i < 12; i++) {
+            if (pianoKeys[i] != newPianoKeys[i]) {
+                uint8_t canTxMsg[8] = { 0 };
+                canTxMsg[0] = newPianoKeys[i] ? 'P' : 'R';
+                canTxMsg[1] = 4;
+                canTxMsg[2] = i;
+                CAN_TX(canTxId, canTxMsg);
+            }
+        }
+        pianoKeys = newPianoKeys.to_ulong();
 
         // Decode knobs
         for (int knobIdx = 0; knobIdx < 4; knobIdx++) {
@@ -138,12 +163,19 @@ void setup()
     analogWriteResolution(32 /* bits */); // To eliminate conversions to uint8_t
     audioSampleClock.setup(TIM6);
     audioSampleClock.setOverflow(22000, HERTZ_FORMAT);
-    audioSampleClock.attachInterrupt(updateAudioSample);
+    audioSampleClock.attachInterrupt(isrUpdateAudioSample);
     audioSampleClock.resume();
 
-    // Mutex handle
-    inputState.mutex = xSemaphoreCreateMutex();
     audioState.mutex = xSemaphoreCreateMutex();
+
+    CAN_Init(true);
+    setCANFilter(canTxId, 0x7ff);
+    CAN_Start();
+
+    canRxQueue = xQueueCreate(50, 8);
+    CAN_RegisterRX_ISR(isrCanRx);
+
+    canTxQueue = xQueueCreate(50, 8);
 
     // Set up task handles
     TaskHandle_t scanKeysHandle = nullptr;
