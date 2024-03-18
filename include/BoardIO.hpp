@@ -33,7 +33,7 @@ const int HKOE_BIT = 6;
 void setOutMuxBit(const uint8_t bitIdx, const bool value);
 
 // Function to read inputs using key matrix
-std::bitset<4> readRow();
+uint8_t readRow();
 
 // Function to select a given row of the switch matrix
 void selectRow(uint8_t rowIdx);
