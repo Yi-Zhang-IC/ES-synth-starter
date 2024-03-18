@@ -41,7 +41,7 @@ void HAL_CAN_MspInit(CAN_HandleTypeDef* CAN_Handle) {
     GPIO_PIN_12,            //PA12 is CAN TX
     GPIO_MODE_AF_PP,        //Alternate function, push-pull driver
     GPIO_NOPULL,            //No pull-up
-    GPIO_SPEED_FREQ_MEDIUM, //Medium slew rate
+    GPIO_SPEED_FREQ_LOW, //Medium slew rate
     GPIO_AF9_CAN1           //Alternate function is CAN
     };
 
@@ -49,7 +49,7 @@ void HAL_CAN_MspInit(CAN_HandleTypeDef* CAN_Handle) {
     GPIO_PIN_11,            //PA11 is CAN RX
     GPIO_MODE_AF_PP,        //Alternate function, push-pull driver
     GPIO_PULLUP,            //Pull-up enabled
-    GPIO_SPEED_FREQ_MEDIUM, //Medium slew rate
+    GPIO_SPEED_FREQ_LOW, //Medium slew rate
     GPIO_AF9_CAN1           //Alternate function is CAN    
     };
 
