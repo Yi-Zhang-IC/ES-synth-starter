@@ -15,5 +15,10 @@ int8_t BitUtils::highestBitSet(uint32_t val)
 
 uint32_t BitUtils::extractBitField(uint32_t val, uint8_t base_bitpos, uint8_t length)
 {
-    return (val >> base_bitpos) & ((1u << length) - 1);
+    return (val >> base_bitpos) & ((1u << length) - 1u);
+}
+
+bool BitUtils::bitIsSet(uint32_t val, uint8_t bitpos)
+{
+    return val & (1u << bitpos);
 }
