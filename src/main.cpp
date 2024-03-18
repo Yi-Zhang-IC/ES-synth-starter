@@ -2,48 +2,44 @@
 #include <U8g2lib.h>
 #include <HardwareTimer.h>
 #include <STM32FreeRTOS.h>
+#include <stream_buffer.h>
 #include <ES_CAN.h>
 
-#include <bitset>
 #include <optional>
 #include <array>
+#include <list>
 
 #include "BoardIO.hpp"
 #include "QuadratureEncoder.hpp"
 #include "BitUtils.hpp"
 #include "Audio.hpp"
+#include "Phasor.hpp"
 
-U8G2_SSD1305_128X32_ADAFRUIT_F_HW_I2C u8g2(U8G2_R0);
+const uint32_t AUDIO_BUFFER_SIZE = 128;
+const uint32_t AUDIO_SAMPLE_RATE_HZ = 22000;
 
-const uint32_t canTxId = 0x123;
-
-QueueHandle_t canRxQueue, canTxQueue;
-
+const uint32_t CAN_ID = 0x123;
 HardwareTimer audioSampleClock;
-volatile uint32_t currentStepSize = 0;
+StreamBufferHandle_t generatedSamples;
 
-struct {
+struct audioState {
     SemaphoreHandle_t mutex;
-    std::optional<uint8_t> noteIdx;
-
+    std::list<Phasor> playingNotes;
     uint8_t volumePercent;
-    enum { SAWTOOTH, TRIANGLE, SINE } waveform;
+    WaveformName waveformType;
 } audioState;
 
-void isrUpdateAudioSample()
+void isrOutputAudioSample()
 {
-    static uint32_t phaseAcc = 0;
+    uint8_t sample;
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-    phaseAcc += currentStepSize;
-    int32_t Vout = (phaseAcc - 0x80000000);
-    analogWrite(OUTR_PIN, Vout + 0x80000000);
-}
+    auto bytesReceived = xStreamBufferReceiveFromISR(generatedSamples, &sample, 1, &xHigherPriorityTaskWoken);
+    if (bytesReceived != 0) {
+        analogWrite(OUTR_PIN, sample);
+    }
 
-void isrCanRx (void) {
-	uint32_t ID;
-	uint8_t RX_Message_ISR[8];
-	CAN_RX(ID, RX_Message_ISR);
-	xQueueSendFromISR(canRxQueue, RX_Message_ISR, NULL);
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 void scanKeysTask(void *pvParameters)
@@ -51,45 +47,59 @@ void scanKeysTask(void *pvParameters)
     const auto xInterval = 10 / portTICK_PERIOD_MS;
     auto xLastWakeTime = xTaskGetTickCount();
 
-    static std::bitset<12> pianoKeys = 0;
+    uint16_t pianoKeys;
     std::array<QuadratureEncoder, 4> knobs;
 
     while (true) {
         vTaskDelayUntil(&xLastWakeTime, xInterval);
 
-        // Scan input matrix
-        std::bitset<32> inputs;
+        // Read all inputs including piano keys and knobs
+        uint32_t inputs = 0;
         for (int rowIdx = 0; rowIdx < 8; rowIdx++) {
             selectRow(rowIdx);
-            auto rowInputs = readRow();
-            inputs |= (rowInputs.to_ulong() << (rowIdx * 4));
+            inputs |= (readRow() << (rowIdx * 4));
         }
-        inputs.flip(); // Inputs are active-low; convert to positive logic
+        inputs = ~inputs;
 
-        // Get change in piano keys and queue messages
-        auto newPianoKeys = inputs & std::bitset<32>(0x00000FFF);
+        // Get change in piano key states
+        uint16_t newPianoKeys = inputs & 0xFFF;
+        uint16_t changedKeys = newPianoKeys ^ pianoKeys;
+
+        // Process changed key states: start/stop notes, send CAN messages
         for (int i = 0; i < 12; i++) {
-            if (pianoKeys[i] != newPianoKeys[i]) {
-                uint8_t canTxMsg[8] = { 0 };
-                canTxMsg[0] = newPianoKeys[i] ? 'P' : 'R';
-                canTxMsg[1] = 4;
-                canTxMsg[2] = i;
-                CAN_TX(canTxId, canTxMsg);
+            if (BitUtils::bitIsSet(changedKeys, i)) {
+                bool keyPressed = BitUtils::bitIsSet(newPianoKeys, i);
+                uint32_t keyFreqHz = noteFreqs.at(i);
+
+                xSemaphoreTake(audioState.mutex, portMAX_DELAY);
+                if (keyPressed) {
+                    audioState.playingNotes.push_back(Phasor(keyFreqHz, AUDIO_SAMPLE_RATE_HZ));
+                } else {
+                    audioState.playingNotes.remove_if(
+                        [keyFreqHz](Phasor &phasor) { return phasor.getFreqHz() == keyFreqHz; });
+                }
+                xSemaphoreGive(audioState.mutex);
+
+                uint8_t canTxMsg[1] = {};
+                canTxMsg[0] |= (keyPressed ? 0x40 : 0x00);
+                canTxMsg[0] |= (i & 0x3F);
+                CAN_TX(CAN_ID, canTxMsg, 1);
             }
         }
-        pianoKeys = newPianoKeys.to_ulong();
+        pianoKeys = newPianoKeys;
 
         // Decode knobs
         for (int knobIdx = 0; knobIdx < 4; knobIdx++) {
             uint8_t knob_signal_bitpos = 18 - (2 * knobIdx);
-            uint8_t knob_signals = BitUtils::extractBitField(inputs.to_ulong(), knob_signal_bitpos, 2);
-            knobs[knobIdx].update(knob_signals);
+            uint8_t knob_signals = BitUtils::extractBitField(inputs, knob_signal_bitpos, 2);
+            knobs.at(knobIdx).update(knob_signals);
         }
 
         uint8_t canRxMsg[8];
         uint32_t canRxId;
+        uint8_t canRxLength;
         while (CAN_CheckRXLevel()) {
-            CAN_RX(canRxId, canRxMsg);
+            CAN_RX(canRxId, canRxMsg, canRxLength);
         }
     }
 }
@@ -99,25 +109,61 @@ void displayUpdateTask(void *pvParameters)
     const auto xInterval = 100 / portTICK_PERIOD_MS;
     auto xLastWakeTime = xTaskGetTickCount();
 
+    U8G2_SSD1305_128X32_ADAFRUIT_F_HW_I2C u8g2(U8G2_R0);
+
+    setOutMuxBit(DRST_BIT, LOW); // Assert display logic reset
+    delayMicroseconds(2);
+    setOutMuxBit(DRST_BIT, HIGH); // Release display logic reset
+    setOutMuxBit(DEN_BIT, HIGH); // Enable display power supply
+    u8g2.begin();
+    u8g2.setContrast(0);
+
     while (1) {
         vTaskDelayUntil(&xLastWakeTime, xInterval);
 
         u8g2.clearBuffer(); // clear the internal memory
         u8g2.setFont(u8g2_font_ncenB08_tr); // choose a suitable font
 
-        auto displayedNoteName = audioState.noteIdx.has_value() ? noteNames[audioState.noteIdx.value() % 12] : "None";
-        u8g2.setCursor(0, 8);
-        u8g2.printf("Note: %s", displayedNoteName.c_str());
-
         u8g2.setCursor(0, 19);
         u8g2.printf("Knobs: ---");
 
         u8g2.setCursor(0, 30);
-        u8g2.printf("Volume: 12%%");
+        u8g2.printf("Volume: 100%%");
 
         u8g2.sendBuffer();
 
         digitalToggle(LED_BUILTIN);
+    }
+}
+
+void generateSamplesTask(void *pvParameters)
+{
+    const size_t batchSize = AUDIO_BUFFER_SIZE / 2;
+
+    while (1) {
+        bool generatedAny = false;
+        uint32_t sample_u20[batchSize];
+
+        xSemaphoreTake(audioState.mutex, portMAX_DELAY);
+        if (!audioState.playingNotes.empty()) {
+            for (int i = 0; i < batchSize; i++) {
+                sample_u20[i] = 0;
+                for (auto &phasor: audioState.playingNotes) {
+                    sample_u20[i] += WaveformGenerators.at(audioState.waveformType)(phasor.next());
+                }
+            }
+            generatedAny = true;
+        }
+        xSemaphoreGive(audioState.mutex);
+
+        Serial.printf("buf: %u/%u\n", AUDIO_BUFFER_SIZE - xStreamBufferSpacesAvailable(generatedSamples), AUDIO_BUFFER_SIZE);
+        if (generatedAny) {
+            uint8_t sample_u8[batchSize];
+            for (int i = 0; i < batchSize; i++) {
+                sample_u8[i] = sample_u20[i] >> 12;
+            }
+            xStreamBufferSend(generatedSamples, &sample_u8, batchSize, portMAX_DELAY);
+        }
     }
 }
 
@@ -139,41 +185,33 @@ void setup()
     pinMode(JOYX_PIN, INPUT_ANALOG);
     pinMode(JOYY_PIN, INPUT_ANALOG);
 
-    // Initialise display
-    setOutMuxBit(DRST_BIT, LOW); // Assert display logic reset
-    delayMicroseconds(2);
-    setOutMuxBit(DRST_BIT, HIGH); // Release display logic reset
-    setOutMuxBit(DEN_BIT, HIGH); // Enable display power supply
-    u8g2.begin();
-    u8g2.setContrast(0);
-
-    // Initialise UART
+    // Initialise debug UART
     Serial.begin(115200);
-    Serial.println("Hello World");
 
-    analogWriteResolution(32 /* bits */); // To eliminate conversions to uint8_t
+    analogWriteResolution(8 /* bits */);
     audioSampleClock.setup(TIM6);
-    audioSampleClock.setOverflow(22000, HERTZ_FORMAT);
-    audioSampleClock.attachInterrupt(isrUpdateAudioSample);
+    audioSampleClock.setOverflow(AUDIO_SAMPLE_RATE_HZ, HERTZ_FORMAT);
+    audioSampleClock.attachInterrupt(isrOutputAudioSample);
     audioSampleClock.resume();
 
+    audioState.volumePercent = 100;
+    audioState.waveformType = WaveformName::SINE;
     audioState.mutex = xSemaphoreCreateMutex();
 
     CAN_Init(true);
-    setCANFilter(canTxId, 0x7ff);
+    setCANFilter(CAN_ID, 0x7ff);
     CAN_Start();
-
-    canRxQueue = xQueueCreate(50, 8);
-    CAN_RegisterRX_ISR(isrCanRx);
-
-    canTxQueue = xQueueCreate(50, 8);
 
     // Set up task handles
     TaskHandle_t scanKeysHandle = nullptr;
-    xTaskCreate(scanKeysTask, "scanKeys", 64, nullptr, 2, &scanKeysHandle);
+    xTaskCreate(scanKeysTask, "scanKeys", 2048, nullptr, 2, &scanKeysHandle);
 
     TaskHandle_t displayUpdateHandle = nullptr;
-    xTaskCreate(displayUpdateTask, "displayUpdate", 256, nullptr, 1, &displayUpdateHandle);
+    xTaskCreate(displayUpdateTask, "displayUpdate", 2048, nullptr, 1, &displayUpdateHandle);
+
+    TaskHandle_t generateSamplesTaskHandle = nullptr;
+    xTaskCreate(generateSamplesTask, "generateSamples", 2048, nullptr, 1, &generateSamplesTaskHandle);
+    generatedSamples = xStreamBufferCreate(AUDIO_BUFFER_SIZE, 1);
 
     vTaskStartScheduler();
 }
