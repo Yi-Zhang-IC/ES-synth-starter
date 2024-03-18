@@ -27,8 +27,8 @@
 
 ```
 ID and position announcement:
-| 1 1 0 | POSITION_INDEX |, | UNIQUE_ID |
-  [7:5]       [4:0]             [7:0]
+| 1 1 0 | POSITION_INDEX |, | UNIQUE_ID_0 |, | UNIQUE_ID_1 |, | UNIQUE_ID_2 |, | UNIQUE_ID_3 |
+  [7:5]       [4:0]              [7:0]            [7:0]            [7:0]            [7:0]
 ```
 
 ```

@@ -14,6 +14,7 @@
 #include "BitUtils.hpp"
 #include "Audio.hpp"
 #include "Phasor.hpp"
+#include "UniqueID.hpp"
 
 const uint32_t AUDIO_BUFFER_SIZE = 256;
 const uint32_t AUDIO_SAMPLE_RATE_HZ = 22000;
@@ -214,6 +215,9 @@ void setup()
     CAN_Init(true);
     setCANFilter(CAN_ID, 0x7ff);
     CAN_Start();
+
+    // Detect attached keyboards
+    Serial.printf("CRC UniqueID: 0x%08x\n", UniqueID::calculate());
 
     // Set up task handles
     TaskHandle_t scanKeysHandle = nullptr;
