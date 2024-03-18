@@ -15,7 +15,7 @@
 #include "Audio.hpp"
 #include "Phasor.hpp"
 
-const uint32_t AUDIO_BUFFER_SIZE = 128;
+const uint32_t AUDIO_BUFFER_SIZE = 256;
 const uint32_t AUDIO_SAMPLE_RATE_HZ = 22000;
 
 const uint32_t CAN_ID = 0x123;
@@ -31,11 +31,12 @@ struct audioState {
 
 void isrOutputAudioSample()
 {
-    uint8_t sample;
+    uint16_t sample;
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-    auto bytesReceived = xStreamBufferReceiveFromISR(generatedSamples, &sample, 1, &xHigherPriorityTaskWoken);
-    if (bytesReceived != 0) {
+    auto sampleReceived =
+        xStreamBufferReceiveFromISR(generatedSamples, &sample, sizeof(sample), &xHigherPriorityTaskWoken);
+    if (sampleReceived != 0) {
         analogWrite(OUTR_PIN, sample);
     }
 
@@ -106,9 +107,6 @@ void scanKeysTask(void *pvParameters)
 
 void displayUpdateTask(void *pvParameters)
 {
-    const auto xInterval = 100 / portTICK_PERIOD_MS;
-    auto xLastWakeTime = xTaskGetTickCount();
-
     U8G2_SSD1305_128X32_ADAFRUIT_F_HW_I2C u8g2(U8G2_R0);
 
     setOutMuxBit(DRST_BIT, LOW); // Assert display logic reset
@@ -117,6 +115,9 @@ void displayUpdateTask(void *pvParameters)
     setOutMuxBit(DEN_BIT, HIGH); // Enable display power supply
     u8g2.begin();
     u8g2.setContrast(0);
+
+    const auto xInterval = 100 / portTICK_PERIOD_MS;
+    auto xLastWakeTime = xTaskGetTickCount();
 
     while (1) {
         vTaskDelayUntil(&xLastWakeTime, xInterval);
@@ -139,30 +140,42 @@ void displayUpdateTask(void *pvParameters)
 void generateSamplesTask(void *pvParameters)
 {
     const size_t batchSize = AUDIO_BUFFER_SIZE / 2;
+    const auto xInterval = (batchSize / (AUDIO_SAMPLE_RATE_HZ / 1000)) / portTICK_PERIOD_MS;
+    auto xLastWakeTime = xTaskGetTickCount();
 
     while (1) {
+        vTaskDelayUntil(&xLastWakeTime, xInterval);
+
         bool generatedAny = false;
-        uint32_t sample_u20[batchSize];
+        int32_t sample_s20[batchSize] = {};
 
         xSemaphoreTake(audioState.mutex, portMAX_DELAY);
         if (!audioState.playingNotes.empty()) {
             for (int i = 0; i < batchSize; i++) {
-                sample_u20[i] = 0;
                 for (auto &phasor: audioState.playingNotes) {
-                    sample_u20[i] += WaveformGenerators.at(audioState.waveformType)(phasor.next());
+                    sample_s20[i] += WaveformGenerators.at(audioState.waveformType)(phasor.next());
                 }
             }
             generatedAny = true;
         }
         xSemaphoreGive(audioState.mutex);
 
-        Serial.printf("buf: %u/%u\n", AUDIO_BUFFER_SIZE - xStreamBufferSpacesAvailable(generatedSamples), AUDIO_BUFFER_SIZE);
         if (generatedAny) {
-            uint8_t sample_u8[batchSize];
+            uint16_t sample_u16[batchSize];
             for (int i = 0; i < batchSize; i++) {
-                sample_u8[i] = sample_u20[i] >> 12;
+                auto sample = (sample_s20[i] >> 3) - INT16_MIN;
+                if (sample < 0) {
+                    sample = 0;
+                }
+                if (sample > UINT16_MAX) {
+                    sample = UINT16_MAX;
+                }
+                sample_u16[i] = sample;
             }
-            xStreamBufferSend(generatedSamples, &sample_u8, batchSize, portMAX_DELAY);
+            xStreamBufferSend(generatedSamples, &sample_u16, batchSize * sizeof(sample_u16[0]), portMAX_DELAY);
+        } else {
+            uint16_t neutral = UINT16_MAX / 2;
+            xStreamBufferSend(generatedSamples, &neutral, sizeof(neutral), portMAX_DELAY);
         }
     }
 }
@@ -188,14 +201,14 @@ void setup()
     // Initialise debug UART
     Serial.begin(115200);
 
-    analogWriteResolution(8 /* bits */);
+    // Set up audio generation and output
+    analogWriteResolution(16 /* bits */);
     audioSampleClock.setup(TIM6);
     audioSampleClock.setOverflow(AUDIO_SAMPLE_RATE_HZ, HERTZ_FORMAT);
     audioSampleClock.attachInterrupt(isrOutputAudioSample);
     audioSampleClock.resume();
-
     audioState.volumePercent = 100;
-    audioState.waveformType = WaveformName::SINE;
+    audioState.waveformType = WaveformName::TRIANGLE;
     audioState.mutex = xSemaphoreCreateMutex();
 
     CAN_Init(true);
@@ -204,14 +217,14 @@ void setup()
 
     // Set up task handles
     TaskHandle_t scanKeysHandle = nullptr;
-    xTaskCreate(scanKeysTask, "scanKeys", 2048, nullptr, 2, &scanKeysHandle);
+    xTaskCreate(scanKeysTask, "scanKeys", 1024, nullptr, 2, &scanKeysHandle);
 
     TaskHandle_t displayUpdateHandle = nullptr;
-    xTaskCreate(displayUpdateTask, "displayUpdate", 2048, nullptr, 1, &displayUpdateHandle);
+    xTaskCreate(displayUpdateTask, "displayUpdate", 1024, nullptr, 1, &displayUpdateHandle);
 
     TaskHandle_t generateSamplesTaskHandle = nullptr;
-    xTaskCreate(generateSamplesTask, "generateSamples", 2048, nullptr, 1, &generateSamplesTaskHandle);
-    generatedSamples = xStreamBufferCreate(AUDIO_BUFFER_SIZE, 1);
+    xTaskCreate(generateSamplesTask, "generateSamples", 1024, nullptr, 1, &generateSamplesTaskHandle);
+    generatedSamples = xStreamBufferCreate(AUDIO_BUFFER_SIZE * sizeof(uint16_t), 1);
 
     vTaskStartScheduler();
 }
