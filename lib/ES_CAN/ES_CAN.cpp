@@ -129,9 +129,8 @@ uint32_t CAN_RX(uint32_t &ID, uint8_t data[8], uint8_t &len) {
   //Get the message from the FIFO
   uint32_t result = (uint32_t) HAL_CAN_GetRxMessage(&CAN_Handle, 0, &rxHeader, data);
 
-  //Store the ID from the header
+  //Store the ID & length from the header
   ID = rxHeader.StdId;
-
   len = rxHeader.DLC;
 
   return result;

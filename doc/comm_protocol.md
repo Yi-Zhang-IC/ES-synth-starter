@@ -1,13 +1,13 @@
 # Embedded CW 2 CAN Protocol
 
-## Key event
+## Key event – 1 byte 
 
 ```
 | 0 | DOWN? | KEY_CODE |
  [7]   [6]     [5:0]
 ```
 
-## Settings update
+## Settings update – 2 bytes
 
 ```
 | 1 0 | OPTION_ID |, | OPTION_VALUE |

@@ -37,3 +37,8 @@ uint8_t readRow();
 
 // Function to select a given row of the switch matrix
 void selectRow(uint8_t rowIdx);
+
+/// @brief Select and read one row of the input key matrix.
+/// @param rowIdx The index of the row to read.
+/// @return The state of the 4 columns on the selected row, placed in the 4 LSBs. Active low.
+uint8_t selectAndReadRow(uint8_t rowIdx);

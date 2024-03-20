@@ -15,13 +15,17 @@
 #include "Audio.hpp"
 #include "Phasor.hpp"
 #include "UniqueID.hpp"
+#include "MessageFormatter.hpp"
 
 const uint32_t AUDIO_BUFFER_SIZE = 256;
 const uint32_t AUDIO_SAMPLE_RATE_HZ = 22000;
 
-const uint32_t CAN_ID = 0x123;
+const uint32_t CAN_ID_BASE = 0x120;
 HardwareTimer audioSampleClock;
 StreamBufferHandle_t generatedSamples;
+
+uint8_t keyboardIndex = 0;
+bool otherKeyboardsPresent = false;
 
 struct audioState {
     SemaphoreHandle_t mutex;
@@ -58,8 +62,7 @@ void scanKeysTask(void *pvParameters)
         // Read all inputs including piano keys and knobs
         uint32_t inputs = 0;
         for (int rowIdx = 0; rowIdx < 8; rowIdx++) {
-            selectRow(rowIdx);
-            inputs |= (readRow() << (rowIdx * 4));
+            inputs |= (selectAndReadRow(rowIdx) << (rowIdx * 4));
         }
         inputs = ~inputs;
 
@@ -82,10 +85,10 @@ void scanKeysTask(void *pvParameters)
                 }
                 xSemaphoreGive(audioState.mutex);
 
-                uint8_t canTxMsg[1] = {};
-                canTxMsg[0] |= (keyPressed ? 0x40 : 0x00);
-                canTxMsg[0] |= (i & 0x3F);
-                CAN_TX(CAN_ID, canTxMsg, 1);
+                if (otherKeyboardsPresent) {
+                    auto msg = MessageFormatter::keyEvent(keyPressed, i);
+                    CAN_TX(CAN_ID_BASE | keyboardIndex, msg.data(), msg.size());
+                }
             }
         }
         pianoKeys = newPianoKeys;
@@ -97,11 +100,13 @@ void scanKeysTask(void *pvParameters)
             knobs.at(knobIdx).update(knob_signals);
         }
 
-        uint8_t canRxMsg[8];
-        uint32_t canRxId;
-        uint8_t canRxLength;
-        while (CAN_CheckRXLevel()) {
-            CAN_RX(canRxId, canRxMsg, canRxLength);
+        if (otherKeyboardsPresent) {
+            uint8_t canRxMsg[8];
+            uint32_t canRxId;
+            uint8_t canRxLength;
+            while (CAN_CheckRXLevel()) {
+                CAN_RX(canRxId, canRxMsg, canRxLength);
+            }
         }
     }
 }
@@ -202,22 +207,119 @@ void setup()
     // Initialise debug UART
     Serial.begin(115200);
 
+    // Detect attached keyboards
+    setOutMuxBit(HKOW_BIT, HIGH);
+    setOutMuxBit(HKOE_BIT, HIGH);
+    delay(3000);
+
+    bool westConnected = !BitUtils::bitIsSet(selectAndReadRow(5), 3);
+    bool eastConnected = !BitUtils::bitIsSet(selectAndReadRow(6), 3);
+
+    if (!westConnected && !eastConnected) {
+        Serial.println("No other keyboards connected");
+        otherKeyboardsPresent = false;
+        keyboardIndex = 0;
+    } else {
+        otherKeyboardsPresent = true;
+
+        bool thisAnnounced = false;
+        bool allDone = false;
+
+        // Initialise CAN
+        CAN_Init(false);
+        setCANFilter(CAN_ID_BASE, 0x7E0);
+        CAN_Start();
+
+        if (!westConnected) {
+            // This is the westmost keyboard; initiate enumeration
+            Serial.println("This is the westmost keyboard");
+
+            setOutMuxBit(HKOE_BIT, LOW);
+
+            auto msg = MessageFormatter::enumerationPositionAndID(keyboardIndex, UniqueID::calculate());
+            CAN_TX(CAN_ID_BASE, msg.data(), msg.size());
+
+            Serial.println("SENT ANNOUCEMENT");
+
+            keyboardIndex = 0;
+            thisAnnounced = true;
+        }
+
+        while (!thisAnnounced) {
+            Serial.println("WAIT ANNOUNCEMENT");
+
+            uint32_t rxID;
+            uint8_t rxBuffer[8];
+            uint8_t rxLength;
+            CAN_RX(rxID, rxBuffer, rxLength);
+            Serial.println("CAN_RX");
+            Serial.printf("    --> txID = 0x%03x\n", rxID);
+            Serial.printf("    --> prevKeyboardIndex = %u\n", rxBuffer[0] & 0x1F);
+
+            bool westAsserted = !BitUtils::bitIsSet(selectAndReadRow(5), 3);
+            if (westAsserted) {
+                // Not our turn yet; wait for the next message
+                Serial.println("WEST NOT DEASSERTED");
+                continue;
+            }
+
+            Serial.println("OUR TURN");
+
+            if ((rxBuffer[0] & 0xE0) == 0xC0) {
+                // ID & position announcement msg
+                uint8_t prevKeyboardIndex = rxBuffer[0] & 0x1F;
+                keyboardIndex = prevKeyboardIndex + 1;
+                Serial.printf("    --> keyboardIndex = %hu\n", keyboardIndex);
+
+                auto msg = MessageFormatter::enumerationPositionAndID(keyboardIndex, UniqueID::calculate());
+                CAN_TX(CAN_ID_BASE | keyboardIndex, msg.data(), msg.size());
+                thisAnnounced = true;
+
+                Serial.println("SENT ANNOUCEMENT");
+
+                setOutMuxBit(HKOE_BIT, LOW);
+
+                if (!eastConnected) {
+                    // This is the eastmost keyboard; also send "done" message
+                    auto msg = MessageFormatter::enumerationDone();
+                    CAN_TX(CAN_ID_BASE | keyboardIndex, msg.data(), msg.size());
+                    allDone = true;
+                    Serial.println("SENT ALL-DONE");
+                }
+            }
+        }
+
+        while (!allDone) {
+            Serial.println("WAIT ALL-DONE");
+
+            uint32_t rxID;
+            uint8_t rxBuffer[8];
+            uint8_t rxLength;
+            CAN_RX(rxID, rxBuffer, rxLength);
+            Serial.println("CAN_RX");
+            Serial.printf("    --> txID = 0x%03x\n", rxID);
+
+            if ((rxBuffer[0] & 0xE0) == 0xE0) {
+                // Done msg
+                allDone = true;
+                Serial.println("RECEIVED ALL-DONE");
+            }
+        }
+
+        setOutMuxBit(HKOW_BIT, HIGH);
+        setOutMuxBit(HKOE_BIT, HIGH);
+    }
+
     // Set up audio generation and output
+    audioState.volumePercent = 100;
+    audioState.waveformType = WaveformName::TRIANGLE;
+    audioState.mutex = xSemaphoreCreateMutex();
+
     analogWriteResolution(16 /* bits */);
     audioSampleClock.setup(TIM6);
     audioSampleClock.setOverflow(AUDIO_SAMPLE_RATE_HZ, HERTZ_FORMAT);
     audioSampleClock.attachInterrupt(isrOutputAudioSample);
     audioSampleClock.resume();
-    audioState.volumePercent = 100;
-    audioState.waveformType = WaveformName::TRIANGLE;
-    audioState.mutex = xSemaphoreCreateMutex();
-
-    CAN_Init(true);
-    setCANFilter(CAN_ID, 0x7ff);
-    CAN_Start();
-
-    // Detect attached keyboards
-    Serial.printf("CRC UniqueID: 0x%08x\n", UniqueID::calculate());
 
     // Set up task handles
     TaskHandle_t scanKeysHandle = nullptr;

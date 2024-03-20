@@ -8,7 +8,7 @@ void setOutMuxBit(const uint8_t bitIdx, const bool value)
     digitalWrite(RA2_PIN, bitIdx & 0x04);
     digitalWrite(OUT_PIN, value);
     digitalWrite(WEN_PIN, HIGH);
-    delayMicroseconds(2);
+    delayMicroseconds(1);
     digitalWrite(WEN_PIN, LOW);
 }
 
@@ -33,4 +33,13 @@ void selectRow(uint8_t rowIdx)
     digitalWrite(RA2_PIN, rowIdx & 0x04);
 
     digitalWrite(WEN_PIN, HIGH);
+    delayMicroseconds(1);
+}
+
+uint8_t selectAndReadRow(uint8_t rowIdx)
+{
+    selectRow(rowIdx);
+    uint8_t result = readRow();
+    digitalWrite(WEN_PIN, LOW);
+    return result;
 }
