@@ -535,21 +535,21 @@ Here we will adopt a more manual method because we need to ensure that we find t
 
   > [!TIP]
   > **FreeRTOS Run Time Statistics**
-	>
-	> [FreeRTOS can provide some information on execution time and utilisation](https://www.freertos.org/rtos-run-time-stats.html) without the need to isolate tasks, but some setting up is required.
-	> You need edit `FreeRTOSConfig.h` in the FreeRTOS library to define a macro that accesses the timer in your system.
-	> You could use the Arduino `micros()` function or you could set up a new `HardwareTimer` instance to give more precision.
-	> 
-	> When your system is running, you can call `vTaskGetRunTimeStats()` to get a task utilisation report from the FreeRTOS kernel.
-	> The report is placed into a char array that can be written directly to the serial port.
-	> 
-	> `vTaskGetRunTimeStats()` gives a breakdown of accumulated execution time per task.
-	> To covert this into a task execution time per iteration you also need to count the number of iterations of each task.
-	> This could be done by adding a counter to each task, but be aware that the numbers could change between calling `vTaskGetRunTimeStats()` and reading the task iteration counters.
-	> 
-	> Just like the manual method, you need to ensure that execution time measurements are the worst case to use them in a critical instant analysis.
-	> That may be challenging to achieve with every task executing at once, but it could be easier to run subsets of the tasks together rather than each one separately.
-	> FreeRTOS cannot tell you how much time is spent executing tasks in interrupts.
+  >
+  > [FreeRTOS can provide some information on execution time and utilisation](https://www.freertos.org/rtos-run-time-stats.html) without the need to isolate tasks, but some setting up is required.
+  > You need edit `FreeRTOSConfig.h` in the FreeRTOS library to define a macro that accesses the timer in your system.
+  > You could use the Arduino `micros()` function or you could set up a new `HardwareTimer` instance to give more precision.
+  > 
+  > When your system is running, you can call `vTaskGetRunTimeStats()` to get a task utilisation report from the FreeRTOS kernel.
+  > The report is placed into a char array that can be written directly to the serial port.
+  > 
+  > `vTaskGetRunTimeStats()` gives a breakdown of accumulated execution time per task.
+  > To covert this into a task execution time per iteration you also need to count the number of iterations of each task.
+  > This could be done by adding a counter to each task, but be aware that the numbers could change between calling `vTaskGetRunTimeStats()` and reading the task iteration counters.
+  > 
+  > Just like the manual method, you need to ensure that execution time measurements are the worst case to use them in a critical instant analysis.
+  > That may be challenging to achieve with every task executing at once, but it could be easier to run subsets of the tasks together rather than each one separately.
+  > FreeRTOS cannot tell you how much time is spent executing tasks in interrupts.
 
 4.	Execution times should be used in conjunction with initiation intervals to complete a critical instant analysis of your system.
 	Refer to the lectures for details.
