@@ -21,11 +21,16 @@ const uint32_t AUDIO_BUFFER_SIZE = 256;
 const uint32_t AUDIO_SAMPLE_RATE_HZ = 22000;
 
 const uint32_t CAN_ID_BASE = 0x120;
+uint32_t ownCANID;
 HardwareTimer audioSampleClock;
 StreamBufferHandle_t generatedSamples;
 
-uint8_t keyboardIndex = 0;
-bool otherKeyboardsPresent = false;
+struct keyboardFormation {
+    uint8_t ownIndex = 0;
+    bool othersPresent = false;
+    bool isWestMost = false;
+    bool isEastMost = false;
+} keyboardFormation;
 
 struct audioState {
     SemaphoreHandle_t mutex;
@@ -85,9 +90,9 @@ void scanKeysTask(void *pvParameters)
                 }
                 xSemaphoreGive(audioState.mutex);
 
-                if (otherKeyboardsPresent) {
+                if (keyboardFormation.othersPresent) {
                     auto msg = MessageFormatter::keyEvent(keyPressed, i);
-                    CAN_TX(CAN_ID_BASE | keyboardIndex, msg.data(), msg.size());
+                    CAN_TX(CAN_ID_BASE | keyboardFormation.ownIndex, msg.data(), msg.size());
                 }
             }
         }
@@ -100,7 +105,7 @@ void scanKeysTask(void *pvParameters)
             knobs.at(knobIdx).update(knob_signals);
         }
 
-        if (otherKeyboardsPresent) {
+        if (keyboardFormation.othersPresent) {
             uint8_t canRxMsg[8];
             uint32_t canRxId;
             uint8_t canRxLength;
@@ -116,11 +121,13 @@ void displayUpdateTask(void *pvParameters)
     U8G2_SSD1305_128X32_ADAFRUIT_F_HW_I2C u8g2(U8G2_R0);
 
     setOutMuxBit(DRST_BIT, LOW); // Assert display logic reset
-    delayMicroseconds(2);
+    delay(1);
     setOutMuxBit(DRST_BIT, HIGH); // Release display logic reset
+
+    delay(keyboardFormation.ownIndex * 5); // Stagger power enable to avoid voltage dip -> reset
     setOutMuxBit(DEN_BIT, HIGH); // Enable display power supply
+
     u8g2.begin();
-    u8g2.setContrast(0);
 
     const auto xInterval = 100 / portTICK_PERIOD_MS;
     auto xLastWakeTime = xTaskGetTickCount();
@@ -132,7 +139,7 @@ void displayUpdateTask(void *pvParameters)
         u8g2.setFont(u8g2_font_ncenB08_tr); // choose a suitable font
 
         u8g2.setCursor(0, 19);
-        u8g2.printf("Knobs: ---");
+        u8g2.printf("Index: %u", keyboardFormation.ownIndex);
 
         u8g2.setCursor(0, 30);
         u8g2.printf("Volume: 100%%");
@@ -204,110 +211,109 @@ void setup()
     pinMode(JOYX_PIN, INPUT_ANALOG);
     pinMode(JOYY_PIN, INPUT_ANALOG);
 
+    // DEBUG
+    digitalWrite(LED_BUILTIN, HIGH);
+    delay(1);
+    digitalWrite(LED_BUILTIN, LOW);
+    delay(1);
+
     // Initialise debug UART
     Serial.begin(115200);
+
+    // Initialise CAN
+    CAN_Init(false);
+    setCANFilter(CAN_ID_BASE, 0x7E0);
+    CAN_Start();
 
     // Detect attached keyboards
     setOutMuxBit(HKOW_BIT, HIGH);
     setOutMuxBit(HKOE_BIT, HIGH);
-    delay(3000);
+
+    // Allow enough time for all keyboards to boot before checking HK lines
+    delay(100);
 
     bool westConnected = !BitUtils::bitIsSet(selectAndReadRow(5), 3);
     bool eastConnected = !BitUtils::bitIsSet(selectAndReadRow(6), 3);
 
     if (!westConnected && !eastConnected) {
         Serial.println("No other keyboards connected");
-        otherKeyboardsPresent = false;
-        keyboardIndex = 0;
+        keyboardFormation.othersPresent = false;
+        keyboardFormation.ownIndex = 0;
     } else {
-        otherKeyboardsPresent = true;
+        keyboardFormation.othersPresent = true;
 
         bool thisAnnounced = false;
         bool allDone = false;
 
-        // Initialise CAN
-        CAN_Init(false);
-        setCANFilter(CAN_ID_BASE, 0x7E0);
-        CAN_Start();
-
         if (!westConnected) {
             // This is the westmost keyboard; initiate enumeration
-            Serial.println("This is the westmost keyboard");
+            keyboardFormation.ownIndex = 0;
+            keyboardFormation.isWestMost = true;
+            keyboardFormation.isEastMost = false;
+            ownCANID = CAN_ID_BASE;
 
+            delay(100);
             setOutMuxBit(HKOE_BIT, LOW);
+            auto msg = MessageFormatter::enumerationPositionAndID(keyboardFormation.ownIndex, UniqueID::calculate());
+            CAN_TX(ownCANID, msg.data(), msg.size());
 
-            auto msg = MessageFormatter::enumerationPositionAndID(keyboardIndex, UniqueID::calculate());
-            CAN_TX(CAN_ID_BASE, msg.data(), msg.size());
-
-            Serial.println("SENT ANNOUCEMENT");
-
-            keyboardIndex = 0;
             thisAnnounced = true;
+        } else {
+            keyboardFormation.isWestMost = false;
         }
 
         while (!thisAnnounced) {
-            Serial.println("WAIT ANNOUNCEMENT");
-
             uint32_t rxID;
             uint8_t rxBuffer[8];
             uint8_t rxLength;
             CAN_RX(rxID, rxBuffer, rxLength);
-            Serial.println("CAN_RX");
-            Serial.printf("    --> txID = 0x%03x\n", rxID);
-            Serial.printf("    --> prevKeyboardIndex = %u\n", rxBuffer[0] & 0x1F);
 
             bool westAsserted = !BitUtils::bitIsSet(selectAndReadRow(5), 3);
             if (westAsserted) {
                 // Not our turn yet; wait for the next message
-                Serial.println("WEST NOT DEASSERTED");
                 continue;
             }
 
-            Serial.println("OUR TURN");
-
             if ((rxBuffer[0] & 0xE0) == 0xC0) {
                 // ID & position announcement msg
-                uint8_t prevKeyboardIndex = rxBuffer[0] & 0x1F;
-                keyboardIndex = prevKeyboardIndex + 1;
-                Serial.printf("    --> keyboardIndex = %hu\n", keyboardIndex);
-
-                auto msg = MessageFormatter::enumerationPositionAndID(keyboardIndex, UniqueID::calculate());
-                CAN_TX(CAN_ID_BASE | keyboardIndex, msg.data(), msg.size());
-                thisAnnounced = true;
-
-                Serial.println("SENT ANNOUCEMENT");
+                uint8_t prevIndex = rxBuffer[0] & 0x1F;
+                keyboardFormation.ownIndex = prevIndex + 1;
+                ownCANID = CAN_ID_BASE + keyboardFormation.ownIndex;
 
                 setOutMuxBit(HKOE_BIT, LOW);
+                auto msg =
+                    MessageFormatter::enumerationPositionAndID(keyboardFormation.ownIndex, UniqueID::calculate());
+                CAN_TX(ownCANID, msg.data(), msg.size());
+
+                thisAnnounced = true;
 
                 if (!eastConnected) {
                     // This is the eastmost keyboard; also send "done" message
+                    keyboardFormation.isEastMost = true;
+
                     auto msg = MessageFormatter::enumerationDone();
-                    CAN_TX(CAN_ID_BASE | keyboardIndex, msg.data(), msg.size());
+                    CAN_TX(ownCANID, msg.data(), msg.size());
+
                     allDone = true;
-                    Serial.println("SENT ALL-DONE");
+                } else {
+                    keyboardFormation.isEastMost = false;
                 }
             }
         }
 
         while (!allDone) {
-            Serial.println("WAIT ALL-DONE");
-
             uint32_t rxID;
             uint8_t rxBuffer[8];
             uint8_t rxLength;
             CAN_RX(rxID, rxBuffer, rxLength);
-            Serial.println("CAN_RX");
-            Serial.printf("    --> txID = 0x%03x\n", rxID);
 
             if ((rxBuffer[0] & 0xE0) == 0xE0) {
-                // Done msg
                 allDone = true;
-                Serial.println("RECEIVED ALL-DONE");
             }
         }
 
-        setOutMuxBit(HKOW_BIT, HIGH);
-        setOutMuxBit(HKOE_BIT, HIGH);
+        setOutMuxBit(HKOW_BIT, LOW);
+        setOutMuxBit(HKOE_BIT, LOW);
     }
 
     // Set up audio generation and output
