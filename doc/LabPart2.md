@@ -458,20 +458,20 @@ Only some of the features of the hardware are exposed by this library.
 
   > [!TIP]
   > **Initiation intervals of the communication tasks**
-	>
-	> The message send task waits for data in a queue, not a fixed time interval, so what is its initiation interval for analysis purposes?
-	> We need to look at how often items are being placed on the queue, which happens in `scanKeysTask()`.
-	> `scanKeysTask()` runs every 20ms and, in the worst case, 12 messages can be generated each time.
-	> 
-	> To process 12 messages in 20ms, `CAN_TX_Task()` must complete one iteration every 1.67ms, on average.
-	> But 1.67ms is a very short initiation interval for a threaded task and it requires a high priority.
-	> In fact, this analysis is unnecessarily harsh — the task doesn’t need to process a message every 1.67ms because they are buffered by the queue.
-	> A queue of length 36 would fill up in $1.67\times 36=60\text{ms}$ and the task needs to initiate at least once in this time so it can loop through all the queued messages.
-	> So the correct initiation interval is 60ms for 36 executions, not 1.67ms for 1 execution.
-	> 
-	> The decode task is also governed by a 36-item queue.
-	> The minimum transmission time of the CAN frames is 0.7ms so, in the worst case, the queue could fill in 25.2ms.
-	> That means the analysis for this task should be based on 36 executions with an initiation interval of 25.2ms.
+  >
+  > The message send task waits for data in a queue, not a fixed time interval, so what is its initiation interval for analysis purposes?
+  > We need to look at how often items are being placed on the queue, which happens in `scanKeysTask()`.
+  > `scanKeysTask()` runs every 20ms and, in the worst case, 12 messages can be generated each time.
+  > 
+  > To process 12 messages in 20ms, `CAN_TX_Task()` must complete one iteration every 1.67ms, on average.
+  > But 1.67ms is a very short initiation interval for a threaded task and it requires a high priority.
+  > In fact, this analysis is unnecessarily harsh — the task doesn’t need to process a message every 1.67ms because they are buffered by the queue.
+  > A queue of length 36 would fill up in $1.67\times 36=60\text{ms}$ and the task needs to initiate at least once in this time so it can loop through all the queued messages.
+  > So the correct initiation interval is 60ms for 36 executions, not 1.67ms for 1 execution.
+  > 
+  > The decode task is also governed by a 36-item queue.
+  > The minimum transmission time of the CAN frames is 0.7ms so, in the worst case, the queue could fill in 25.2ms.
+  > That means the analysis for this task should be based on 36 executions with an initiation interval of 25.2ms.
 
 6.	Synthesiser modules should be configurable as senders or receivers.
 	Senders will send messages when keys are pressed or released, but they will not generate sound themselves.
