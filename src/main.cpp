@@ -88,8 +88,7 @@ void scanKeysTask(void *pvParameters)
                     audioState.playingNotes.push_back(
                         { noteIdx, noteNames.at(noteIdxInOctave), Phasor(keyFreqHz, AUDIO_SAMPLE_RATE_HZ) });
                 } else {
-                    audioState.playingNotes.remove_if(
-                        [noteIdx](Note &note) { return note.idx == noteIdx; });
+                    audioState.playingNotes.remove_if([noteIdx](Note &note) { return note.idx == noteIdx; });
                 }
                 xSemaphoreGive(audioState.mutex);
 
@@ -127,7 +126,7 @@ void displayUpdateTask(void *pvParameters)
     delay(1);
     setOutMuxBit(DRST_BIT, HIGH); // Release display logic reset
 
-    delay(keyboardFormation.ownIndex * 5); // Stagger power-on to avoid big voltage dip -> reset
+    delay(keyboardFormation.ownIndex * 10); // Stagger power-on to avoid big voltage dip -> reset
     setOutMuxBit(DEN_BIT, HIGH); // Enable display power supply
 
     u8g2.begin();
@@ -165,12 +164,12 @@ void displayUpdateTask(void *pvParameters)
 
         // Copy over current playing notes to avoid hogging mutex while making string
         xSemaphoreTake(audioState.mutex, portMAX_DELAY);
-        auto currentPlayingNotes = audioState.playingNotes;
+        auto playingNotes = audioState.playingNotes;
         xSemaphoreGive(audioState.mutex);
 
         // Construct & draw string with names of currently playing notes
         std::string playingNoteNames = "";
-        for (auto &note: currentPlayingNotes) {
+        for (auto &note: playingNotes) {
             if (!playingNoteNames.empty()) {
                 playingNoteNames.append(",");
             }
