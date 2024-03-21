@@ -18,6 +18,7 @@
 #include "MessageFormatter.hpp"
 #include "EventTypes.hpp"
 #include "Capped.hpp"
+#include "Bitmaps.hpp"
 
 const uint32_t AUDIO_BUFFER_SIZE = 256;
 const uint32_t AUDIO_SAMPLE_RATE_HZ = 22000;
@@ -177,16 +178,21 @@ void processEventsTask(void *pvParameters)
 
 void displayUpdateTask(void *pvParameters)
 {
+    const static std::unordered_map<WaveformName, Bitmap> waveformIcons = { { WaveformName::SQUARE, squareIcon },
+        { WaveformName::SAWTOOTH, sawtoothIcon }, { WaveformName::TRIANGLE, triangleIcon },
+        { WaveformName::SINE, sineIcon } };
+
     U8G2_SSD1305_128X32_ADAFRUIT_F_HW_I2C u8g2(U8G2_R0);
 
     setOutMuxBit(DRST_BIT, LOW); // Assert display logic reset
     delay(1);
     setOutMuxBit(DRST_BIT, HIGH); // Release display logic reset
 
-    delay(keyboardFormation.ownIndex * 10); // Stagger power-on to avoid big voltage dip -> reset
+    delay(KeyboardFormation.ownIndex * 10); // Stagger power-on to avoid big voltage dip -> reset
     setOutMuxBit(DEN_BIT, HIGH); // Enable display power supply
 
     u8g2.begin();
+    u8g2.setContrast(0);
 
     const auto xInterval = 100 / portTICK_PERIOD_MS;
     auto xLastWakeTime = xTaskGetTickCount();
@@ -194,35 +200,49 @@ void displayUpdateTask(void *pvParameters)
     while (1) {
         vTaskDelayUntil(&xLastWakeTime, xInterval);
 
+        // Copy over current playing notes to avoid hogging mutex while making string
+        xSemaphoreTake(AudioState.mutex, portMAX_DELAY);
+        const auto playingNotes = AudioState.playingNotes;
+        const auto waveformType = AudioState.waveformType;
+        const auto volume = AudioState.volumeLevel.get();
+        xSemaphoreGive(AudioState.mutex);
+
         u8g2.clearBuffer();
         u8g2.enableUTF8Print(); // For the arrows
         u8g2.setFontMode(1); // Transparent text on; for the occtave indicator
 
+        uint8_t savedColor; // For saving old draw color when temporarily changing color
+
         // Draw arrows pointing at knobs
         u8g2.setFont(u8g2_font_siji_t_6x10);
-        u8g2.setCursor(-2, 30);
-        u8g2.printf("\ue065");
-        u8g2.setCursor(118, 30);
-        u8g2.printf("\ue067");
+        u8g2.setCursor(-2, 29);
+        u8g2.printf("\ue109");
+        u8g2.setCursor(118, 29);
+        u8g2.printf("\ue109");
 
         // Draw octave indicator
         u8g2.drawBox(0, 0, 9, 10);
-        u8g2.setDrawColor(2);
+        savedColor = u8g2.getDrawColor();
         u8g2.setFont(u8g2_font_questgiver_tr);
         u8g2.setCursor(2, 9);
-        u8g2.printf("%u", keyboardFormation.ownIndex + 1); // 1-based for humans
-        u8g2.setDrawColor(1);
+        u8g2.setDrawColor(2);
+        u8g2.printf("%u", KeyboardFormation.ownIndex + 1); // 1-based for humans
+        u8g2.setDrawColor(savedColor);
 
-        u8g2.setCursor(10, 30);
-        u8g2.printf("Volume");
+        // Draw volume bar
+        u8g2.setCursor(11, 29);
+        u8g2.printf("Vol");
+        u8g2.drawFrame(30, 21, 20, 8);
+        u8g2.drawBox(32, 23, 2 * (volume + 1), 4);
 
-        u8g2.setCursor(67, 30);
-        u8g2.printf("Waveform");
-
-        // Copy over current playing notes to avoid hogging mutex while making string
-        xSemaphoreTake(audioState.mutex, portMAX_DELAY);
-        auto playingNotes = audioState.playingNotes;
-        xSemaphoreGive(audioState.mutex);
+        // Draw waveform type icon
+        u8g2.setCursor(90, 29);
+        u8g2.printf("Wvfm");
+        auto &icon = waveformIcons.at(waveformType);
+        savedColor = u8g2.getDrawColor();
+        u8g2.setDrawColor(0);
+        u8g2.drawXBM(62, 21, icon.width, icon.height, icon.bits);
+        u8g2.setDrawColor(savedColor);
 
         // Construct & draw string with names of currently playing notes
         std::string playingNoteNames = "";
