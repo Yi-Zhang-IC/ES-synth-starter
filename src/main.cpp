@@ -138,18 +138,24 @@ void displayUpdateTask(void *pvParameters)
     while (1) {
         vTaskDelayUntil(&xLastWakeTime, xInterval);
 
-        u8g2.clearBuffer(); // clear the internal memory
-        u8g2.enableUTF8Print();
+        u8g2.clearBuffer();
+        u8g2.enableUTF8Print(); // For the arrows
+        u8g2.setFontMode(1); // Transparent text on; for the occtave indicator
 
+        // Draw arrows pointing at knobs
         u8g2.setFont(u8g2_font_siji_t_6x10);
         u8g2.setCursor(-2, 30);
         u8g2.printf("\ue065");
         u8g2.setCursor(118, 30);
         u8g2.printf("\ue067");
 
+        // Draw octave indicator
+        u8g2.drawBox(0, 0, 9, 10);
+        u8g2.setDrawColor(2);
         u8g2.setFont(u8g2_font_questgiver_tr);
-        u8g2.setCursor(0, 9);
-        u8g2.printf("#%u", keyboardFormation.ownIndex);
+        u8g2.setCursor(2, 9);
+        u8g2.printf("%u", keyboardFormation.ownIndex + 1); // 1-based for humans
+        u8g2.setDrawColor(1);
 
         u8g2.setCursor(10, 30);
         u8g2.printf("Volume");
@@ -157,6 +163,23 @@ void displayUpdateTask(void *pvParameters)
         u8g2.setCursor(67, 30);
         u8g2.printf("Waveform");
 
+        // Copy over current playing notes to avoid hogging mutex while making string
+        xSemaphoreTake(audioState.mutex, portMAX_DELAY);
+        auto currentPlayingNotes = audioState.playingNotes;
+        xSemaphoreGive(audioState.mutex);
+
+        // Construct & draw string with names of currently playing notes
+        std::string playingNoteNames = "";
+        for (auto &note: currentPlayingNotes) {
+            if (!playingNoteNames.empty()) {
+                playingNoteNames.append(",");
+            }
+            playingNoteNames.append(note.name);
+        }
+        u8g2.setCursor(13, 9);
+        u8g2.print(playingNoteNames.c_str());
+
+        // Flush framebuffer to SSD1305
         u8g2.sendBuffer();
 
         digitalToggle(LED_BUILTIN);
