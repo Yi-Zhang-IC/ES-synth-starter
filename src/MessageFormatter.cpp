@@ -5,7 +5,7 @@ std::array<uint8_t, 1> MessageFormatter::keyEvent(bool keyDown, uint8_t keyIndex
     return { (keyDown ? 0x40 : 0x00) | (keyIndex & 0x3F) };
 }
 
-std::array<uint8_t, 2> MessageFormatter::optionUpdate(uint8_t optionID, uint8_t value)
+std::array<uint8_t, 2> MessageFormatter::settingUpdate(uint8_t optionID, uint8_t value)
 {
     return { 0x80 | (optionID & 0x3F), value };
 }

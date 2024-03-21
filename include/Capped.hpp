@@ -1,3 +1,6 @@
+/// @brief An integer with capped addition and subtraction so that its value never exceeds the limits. 
+/// @tparam low The minimum value allowed to be held
+/// @tparam high The maximum value allowed to be held
 template<int low, int high> class CappedInt
 {
 public:

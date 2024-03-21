@@ -62,13 +62,13 @@ void canRxTask(void *pvParameters)
         uint8_t rxData[8];
         uint8_t rxLength = xMessageBufferReceive(canRxMsgQueue, rxData, sizeof(rxData), portMAX_DELAY);
 
-        if ((rxData[0] & 0x80) == 0x00) { // Key event message have MSB = 0
+        if ((rxData[0] & 0x80) == 0x00) { // Key event message have MSB = 0b0
             bool keyPressed = rxData[0] & 0x40;
             uint8_t keyIndex = rxData[0] & 0x3F;
 
             GenericEvent e = { EventType::NOTE_CHANGE, (uint8_t)keyPressed, keyIndex };
             xQueueSendToBack(eventQueue, &e, portMAX_DELAY);
-        } else if ((rxData[0] & 0xC0) == 0x80) { // Settings update message have MSBs = 10
+        } else if ((rxData[0] & 0xC0) == 0x80) { // Settings update message have MSBs = 0b10
             uint8_t settingID = rxData[0] & 0x3F;
             uint8_t settingValue = rxData[1];
 
@@ -151,6 +151,7 @@ void scanKeysTask(void *pvParameters)
             knobs.at(knobIdx).update(knob_signals);
         }
 
+        // Queue (& broadcast) new volume if volume knob changed
         auto volumeKnobChange = knobs.at(0).getChange();
         if (volumeKnobChange) {
             auto newVolume = AudioState.volumeLevel + volumeKnobChange;
@@ -159,14 +160,17 @@ void scanKeysTask(void *pvParameters)
             xQueueSendToBack(eventQueue, &e, portMAX_DELAY);
 
             if (KeyboardFormation.othersPresent) {
-                auto msg = MessageFormatter::optionUpdate((uint8_t)SettingName::VOLUME, newVolume);
+                auto msg = MessageFormatter::settingUpdate((uint8_t)SettingName::VOLUME, newVolume);
                 xMessageBufferSend(canTxMsgQueue, msg.data(), msg.size(), portMAX_DELAY);
             }
         }
 
+        // Queue (& broadcast) new waveform if waveform knob changed
         auto waveformKnobChange = knobs.at(3).getChange();
         if (waveformKnobChange) {
             WaveformName newWaveform;
+
+            // Cycle through waveforms on each change
             if (waveformKnobChange > 0) {
                 switch (AudioState.waveformType) {
                 case WaveformName::SAWTOOTH: newWaveform = WaveformName::TRIANGLE; break;
@@ -187,7 +191,7 @@ void scanKeysTask(void *pvParameters)
             xQueueSendToBack(eventQueue, &e, portMAX_DELAY);
 
             if (KeyboardFormation.othersPresent) {
-                auto msg = MessageFormatter::optionUpdate((uint8_t)SettingName::WAVEFORM, (uint8_t)newWaveform);
+                auto msg = MessageFormatter::settingUpdate((uint8_t)SettingName::WAVEFORM, (uint8_t)newWaveform);
                 xMessageBufferSend(canTxMsgQueue, msg.data(), msg.size(), portMAX_DELAY);
             }
         }
@@ -225,7 +229,7 @@ void applyEventsTask(void *pvParameters)
 
 void displayUpdateTask(void *pvParameters)
 {
-    const static std::unordered_map<WaveformName, Bitmap> waveformIcons = { { WaveformName::SQUARE, squareIcon },
+    const static std::unordered_map<WaveformName, XBMBitmap> waveformIcons = { { WaveformName::SQUARE, squareIcon },
         { WaveformName::SAWTOOTH, sawtoothIcon }, { WaveformName::TRIANGLE, triangleIcon },
         { WaveformName::SINE, sineIcon } };
 
