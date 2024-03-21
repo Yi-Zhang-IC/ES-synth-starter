@@ -3,6 +3,7 @@
 #include <HardwareTimer.h>
 #include <STM32FreeRTOS.h>
 #include <stream_buffer.h>
+#include <message_buffer.h>
 #include <ES_CAN.h>
 
 #include <optional>
@@ -21,7 +22,7 @@
 #include "Bitmaps.hpp"
 
 const uint32_t AUDIO_BUFFER_SIZE = 256;
-const uint32_t AUDIO_SAMPLE_RATE_HZ = 22000;
+const uint32_t AUDIO_SAMPLE_RATE_HZ = 24000;
 
 const uint32_t CAN_ID_BASE = 0x120;
 uint32_t ownCANID;
@@ -43,7 +44,60 @@ struct AudioState {
 } AudioState;
 
 QueueHandle_t eventQueue;
+MessageBufferHandle_t canRxMsgQueue, canTxMsgQueue;
 
+void canRxISR()
+{
+    uint32_t id;
+    uint8_t data[8];
+    uint8_t len;
+
+    CAN_RX(id, data, len);
+    xMessageBufferSendFromISR(canRxMsgQueue, data, len, pdFALSE);
+
+    Serial.println("CAN R ISR");
+}
+
+void canRxTask(void *pvParameters)
+{
+    while (true) {
+        uint8_t rxData[8];
+        uint8_t rxLength = xMessageBufferReceive(canRxMsgQueue, rxData, sizeof(rxData), portMAX_DELAY);
+
+        Serial.print("CAN R Task");
+
+        if ((rxData[0] & 0x80) == 0x00) { // Key event message have MSB = 0
+            Serial.printf(" --> (%hu) [0x%02x] key event\n", rxLength, rxData[0]);
+            bool keyPressed = rxData[0] & 0x40;
+            uint8_t keyIndex = rxData[0] & 0x3F;
+
+            GenericEvent e = { EventType::NOTE_CHANGE, (uint8_t)keyPressed, keyIndex };
+            xQueueSendToBack(eventQueue, &e, portMAX_DELAY);
+        } else if ((rxData[0] & 0xC0) == 0x80) { // Settings update message have MSBs = 10
+            Serial.printf(" --> (%hu) [0x%02x] settings event\n", rxLength, rxData[0]);
+            uint8_t settingID = rxData[0] & 0x3F;
+            uint8_t settingValue = rxData[1];
+
+            GenericEvent e = { EventType::SETTINGS_UPDATE, settingID, settingValue };
+            xQueueSendToBack(eventQueue, &e, portMAX_DELAY);
+        } else {
+            Serial.printf(" --> (%hu) [0x%02x] [!] unknown\n", rxLength, rxData[0]);
+            // Either a handshaking message, meaning the sender booted too late,
+            // or an unrecognised message. Do nothing
+        }
+    }
+}
+
+void canTxTask(void *pvParameters)
+{
+    while (true) {
+        uint8_t txData[8];
+        uint8_t txLength = xMessageBufferReceive(canTxMsgQueue, txData, sizeof(txData), portMAX_DELAY);
+        CAN_TX(ownCANID, txData, txLength);
+
+        Serial.println("CAN T Task");
+    }
+}
 
 void isrOutputAudioSample()
 {
@@ -87,13 +141,12 @@ void scanKeysTask(void *pvParameters)
                 bool keyPressed = BitUtils::bitIsSet(newPianoKeys, i);
                 uint8_t noteIdxInOctave = i;
                 uint8_t noteIdx = 12 * KeyboardFormation.ownIndex + noteIdxInOctave;
-                GenericEvent keyEvent = { EventType::NOTE_CHANGE, keyPressed, noteIdx };
-                xQueueSendToBack(eventQueue, &keyEvent, portMAX_DELAY);
 
-                if (KeyboardFormation.othersPresent) {
-                    auto msg = MessageFormatter::keyEvent(keyPressed, i);
-                    CAN_TX(CAN_ID_BASE | KeyboardFormation.ownIndex, msg.data(), msg.size());
-                }
+                GenericEvent e = { EventType::NOTE_CHANGE, keyPressed, noteIdx };
+                xQueueSendToBack(eventQueue, &e, portMAX_DELAY);
+
+                auto msg = MessageFormatter::keyEvent(keyPressed, noteIdx);
+                xMessageBufferSend(canTxMsgQueue, msg.data(), msg.size(), portMAX_DELAY);
             }
         }
         pianoKeys = newPianoKeys;
@@ -107,15 +160,17 @@ void scanKeysTask(void *pvParameters)
 
         auto volumeKnobChange = knobs.at(0).getChange();
         if (volumeKnobChange) {
-            Serial.printf("volumeKnobChange = %i\n", volumeKnobChange);
             auto newVolume = AudioState.volumeLevel + volumeKnobChange;
-            GenericEvent e = { EventType::SETTINGS_UPDATE, (uint8_t)SettingName::VOLUME, newVolume };
+
+            GenericEvent e = { EventType::SETTINGS_UPDATE, (uint8_t)SettingName::VOLUME, (uint8_t)newVolume };
             xQueueSendToBack(eventQueue, &e, portMAX_DELAY);
+
+            auto msg = MessageFormatter::optionUpdate((uint8_t)SettingName::VOLUME, newVolume);
+            xMessageBufferSend(canTxMsgQueue, msg.data(), msg.size(), portMAX_DELAY);
         }
 
         auto waveformKnobChange = knobs.at(3).getChange();
         if (waveformKnobChange) {
-            Serial.printf("waveformKnobChange = %i\n", waveformKnobChange);
             WaveformName newWaveform;
             if (waveformKnobChange > 0) {
                 switch (AudioState.waveformType) {
@@ -132,22 +187,17 @@ void scanKeysTask(void *pvParameters)
                 case WaveformName::SQUARE: newWaveform = WaveformName::SINE; break;
                 }
             }
+
             GenericEvent e = { EventType::SETTINGS_UPDATE, (uint8_t)SettingName::WAVEFORM, (uint8_t)newWaveform };
             xQueueSendToBack(eventQueue, &e, portMAX_DELAY);
-        }
 
-        if (KeyboardFormation.othersPresent) {
-            uint8_t canRxMsg[8];
-            uint32_t canRxId;
-            uint8_t canRxLength;
-            while (CAN_CheckRXLevel()) {
-                CAN_RX(canRxId, canRxMsg, canRxLength);
-            }
+            auto msg = MessageFormatter::optionUpdate((uint8_t)SettingName::WAVEFORM, (uint8_t)newWaveform);
+            xMessageBufferSend(canTxMsgQueue, msg.data(), msg.size(), portMAX_DELAY);
         }
     }
 }
 
-void processEventsTask(void *pvParameters)
+void applyEventsTask(void *pvParameters)
 {
     while (true) {
         GenericEvent event;
@@ -438,7 +488,7 @@ void setup()
     xTaskCreate(scanKeysTask, "scanKeys", 1024, nullptr, 2, &scanKeysHandle);
 
     TaskHandle_t processEventsHandle = nullptr;
-    xTaskCreate(processEventsTask, "processEvents", 1024, nullptr, 2, &processEventsHandle);
+    xTaskCreate(applyEventsTask, "processEvents", 1024, nullptr, 2, &processEventsHandle);
     eventQueue = xQueueCreate(10, sizeof(GenericEvent));
 
     TaskHandle_t displayUpdateHandle = nullptr;
@@ -447,6 +497,15 @@ void setup()
     TaskHandle_t generateSamplesTaskHandle = nullptr;
     xTaskCreate(generateSamplesTask, "generateSamples", 1024, nullptr, 1, &generateSamplesTaskHandle);
     generatedSamples = xStreamBufferCreate(AUDIO_BUFFER_SIZE * sizeof(uint16_t), 1);
+
+    TaskHandle_t canRxTaskHandle = nullptr;
+    xTaskCreate(canRxTask, "canRx", 1024, nullptr, 2, &canRxTaskHandle);
+    canRxMsgQueue = xMessageBufferCreate(128);
+    CAN_RegisterRX_ISR(canRxISR); // Register ISR now since handshaking is done
+
+    TaskHandle_t canTxTaskHandle = nullptr;
+    xTaskCreate(canTxTask, "canTx", 1024, nullptr, 2, &canTxTaskHandle); 
+    canTxMsgQueue = xMessageBufferCreate(128);
 
     vTaskStartScheduler();
 }
