@@ -16,6 +16,8 @@
 #include "Note.hpp"
 #include "UniqueID.hpp"
 #include "MessageFormatter.hpp"
+#include "EventTypes.hpp"
+#include "Capped.hpp"
 
 const uint32_t AUDIO_BUFFER_SIZE = 256;
 const uint32_t AUDIO_SAMPLE_RATE_HZ = 22000;
@@ -25,19 +27,22 @@ uint32_t ownCANID;
 HardwareTimer audioSampleClock;
 StreamBufferHandle_t generatedSamples;
 
-struct keyboardFormation {
+struct KeyboardFormation {
     uint8_t ownIndex = 0;
     bool othersPresent = false;
     bool isWestMost = false;
     bool isEastMost = false;
-} keyboardFormation;
+} KeyboardFormation;
 
-struct audioState {
+struct AudioState {
     SemaphoreHandle_t mutex;
     std::list<Note> playingNotes;
-    uint8_t volumePercent = 100;
-    WaveformName waveformType = WaveformName::SAWTOOTH;
-} audioState;
+    CappedInt<0, 7> volumeLevel;
+    WaveformName waveformType;
+} AudioState;
+
+QueueHandle_t eventQueue;
+
 
 void isrOutputAudioSample()
 {
@@ -80,21 +85,13 @@ void scanKeysTask(void *pvParameters)
             if (BitUtils::bitIsSet(changedKeys, i)) {
                 bool keyPressed = BitUtils::bitIsSet(newPianoKeys, i);
                 uint8_t noteIdxInOctave = i;
-                uint8_t noteIdx = 12 * keyboardFormation.ownIndex + noteIdxInOctave;
-                uint32_t keyFreqHz = noteFreqs.at(noteIdx);
+                uint8_t noteIdx = 12 * KeyboardFormation.ownIndex + noteIdxInOctave;
+                GenericEvent keyEvent = { EventType::NOTE_CHANGE, keyPressed, noteIdx };
+                xQueueSendToBack(eventQueue, &keyEvent, portMAX_DELAY);
 
-                xSemaphoreTake(audioState.mutex, portMAX_DELAY);
-                if (keyPressed) {
-                    audioState.playingNotes.push_back(
-                        { noteIdx, noteNames.at(noteIdxInOctave), Phasor(keyFreqHz, AUDIO_SAMPLE_RATE_HZ) });
-                } else {
-                    audioState.playingNotes.remove_if([noteIdx](Note &note) { return note.idx == noteIdx; });
-                }
-                xSemaphoreGive(audioState.mutex);
-
-                if (keyboardFormation.othersPresent) {
+                if (KeyboardFormation.othersPresent) {
                     auto msg = MessageFormatter::keyEvent(keyPressed, i);
-                    CAN_TX(CAN_ID_BASE | keyboardFormation.ownIndex, msg.data(), msg.size());
+                    CAN_TX(CAN_ID_BASE | KeyboardFormation.ownIndex, msg.data(), msg.size());
                 }
             }
         }
@@ -107,12 +104,72 @@ void scanKeysTask(void *pvParameters)
             knobs.at(knobIdx).update(knob_signals);
         }
 
-        if (keyboardFormation.othersPresent) {
+        auto volumeKnobChange = knobs.at(0).getChange();
+        if (volumeKnobChange) {
+            Serial.printf("volumeKnobChange = %i\n", volumeKnobChange);
+            auto newVolume = AudioState.volumeLevel + volumeKnobChange;
+            GenericEvent e = { EventType::SETTINGS_UPDATE, (uint8_t)SettingName::VOLUME, newVolume };
+            xQueueSendToBack(eventQueue, &e, portMAX_DELAY);
+        }
+
+        auto waveformKnobChange = knobs.at(3).getChange();
+        if (waveformKnobChange) {
+            Serial.printf("waveformKnobChange = %i\n", waveformKnobChange);
+            WaveformName newWaveform;
+            if (waveformKnobChange > 0) {
+                switch (AudioState.waveformType) {
+                case WaveformName::SAWTOOTH: newWaveform = WaveformName::TRIANGLE; break;
+                case WaveformName::TRIANGLE: newWaveform = WaveformName::SINE; break;
+                case WaveformName::SINE: newWaveform = WaveformName::SQUARE; break;
+                case WaveformName::SQUARE: newWaveform = WaveformName::SAWTOOTH; break;
+                }
+            } else {
+                switch (AudioState.waveformType) {
+                case WaveformName::SAWTOOTH: newWaveform = WaveformName::SQUARE; break;
+                case WaveformName::TRIANGLE: newWaveform = WaveformName::SAWTOOTH; break;
+                case WaveformName::SINE: newWaveform = WaveformName::TRIANGLE; break;
+                case WaveformName::SQUARE: newWaveform = WaveformName::SINE; break;
+                }
+            }
+            GenericEvent e = { EventType::SETTINGS_UPDATE, (uint8_t)SettingName::WAVEFORM, (uint8_t)newWaveform };
+            xQueueSendToBack(eventQueue, &e, portMAX_DELAY);
+        }
+
+        if (KeyboardFormation.othersPresent) {
             uint8_t canRxMsg[8];
             uint32_t canRxId;
             uint8_t canRxLength;
             while (CAN_CheckRXLevel()) {
                 CAN_RX(canRxId, canRxMsg, canRxLength);
+            }
+        }
+    }
+}
+
+void processEventsTask(void *pvParameters)
+{
+    while (true) {
+        GenericEvent event;
+        xQueueReceive(eventQueue, &event, portMAX_DELAY);
+
+        if (event.type == EventType::NOTE_CHANGE) {
+            bool start = (event.subtype != 0);
+            uint8_t noteIdx = event.value;
+            uint32_t keyFreqHz = noteFreqs.at(noteIdx);
+
+            xSemaphoreTake(AudioState.mutex, portMAX_DELAY);
+            if (start) {
+                AudioState.playingNotes.push_back(
+                    { noteIdx, noteNames.at(noteIdx % 12), Phasor(keyFreqHz, AUDIO_SAMPLE_RATE_HZ) });
+            } else {
+                AudioState.playingNotes.remove_if([noteIdx](Note &note) { return note.idx == noteIdx; });
+            }
+            xSemaphoreGive(AudioState.mutex);
+        } else if (event.type == EventType::SETTINGS_UPDATE) {
+            switch ((SettingName)event.subtype) {
+            case SettingName::VOLUME: AudioState.volumeLevel.set(event.value); break;
+            case SettingName::WAVEFORM: AudioState.waveformType = (WaveformName)event.value; break;
+            default: break;
             }
         }
     }
@@ -197,21 +254,21 @@ void generateSamplesTask(void *pvParameters)
         bool generatedAny = false;
         int32_t sample_s20[batchSize] = {};
 
-        xSemaphoreTake(audioState.mutex, portMAX_DELAY);
-        if (!audioState.playingNotes.empty()) {
+        xSemaphoreTake(AudioState.mutex, portMAX_DELAY);
+        if (!AudioState.playingNotes.empty()) {
             for (int i = 0; i < batchSize; i++) {
-                for (auto &note: audioState.playingNotes) {
-                    sample_s20[i] += WaveformGenerators.at(audioState.waveformType)(note.phase.next());
+                for (auto &note: AudioState.playingNotes) {
+                    sample_s20[i] += WaveformGenerators.at(AudioState.waveformType)(note.phase.next());
                 }
             }
             generatedAny = true;
         }
-        xSemaphoreGive(audioState.mutex);
+        xSemaphoreGive(AudioState.mutex);
 
         if (generatedAny) {
             uint16_t sample_u16[batchSize];
             for (int i = 0; i < batchSize; i++) {
-                auto sample = (sample_s20[i] >> 3) - INT16_MIN;
+                auto sample = (sample_s20[i] >> (7 - AudioState.volumeLevel.get())) - INT16_MIN;
                 if (sample < 0) {
                     sample = 0;
                 }
@@ -246,12 +303,6 @@ void setup()
     pinMode(JOYX_PIN, INPUT_ANALOG);
     pinMode(JOYY_PIN, INPUT_ANALOG);
 
-    // DEBUG
-    digitalWrite(LED_BUILTIN, HIGH);
-    delay(1);
-    digitalWrite(LED_BUILTIN, LOW);
-    delay(1);
-
     // Initialise debug UART
     Serial.begin(115200);
 
@@ -272,29 +323,29 @@ void setup()
 
     if (!westConnected && !eastConnected) {
         Serial.println("No other keyboards connected");
-        keyboardFormation.othersPresent = false;
-        keyboardFormation.ownIndex = 0;
+        KeyboardFormation.othersPresent = false;
+        KeyboardFormation.ownIndex = 0;
     } else {
-        keyboardFormation.othersPresent = true;
+        KeyboardFormation.othersPresent = true;
 
         bool thisAnnounced = false;
         bool allDone = false;
 
         if (!westConnected) {
             // This is the westmost keyboard; initiate enumeration
-            keyboardFormation.ownIndex = 0;
-            keyboardFormation.isWestMost = true;
-            keyboardFormation.isEastMost = false;
+            KeyboardFormation.ownIndex = 0;
+            KeyboardFormation.isWestMost = true;
+            KeyboardFormation.isEastMost = false;
             ownCANID = CAN_ID_BASE;
 
             delay(100); // Allow enough time for all keyboards to sample their initial HK inputs
             setOutMuxBit(HKOE_BIT, LOW);
-            auto msg = MessageFormatter::enumerationPositionAndID(keyboardFormation.ownIndex, UniqueID::calculate());
+            auto msg = MessageFormatter::enumerationPositionAndID(KeyboardFormation.ownIndex, UniqueID::calculate());
             CAN_TX(ownCANID, msg.data(), msg.size());
 
             thisAnnounced = true;
         } else {
-            keyboardFormation.isWestMost = false;
+            KeyboardFormation.isWestMost = false;
         }
 
         while (!thisAnnounced) {
@@ -312,26 +363,26 @@ void setup()
             if ((rxBuffer[0] & 0xE0) == 0xC0) {
                 // ID & position announcement msg
                 uint8_t prevIndex = rxBuffer[0] & 0x1F;
-                keyboardFormation.ownIndex = prevIndex + 1;
-                ownCANID = CAN_ID_BASE + keyboardFormation.ownIndex;
+                KeyboardFormation.ownIndex = prevIndex + 1;
+                ownCANID = CAN_ID_BASE + KeyboardFormation.ownIndex;
 
                 setOutMuxBit(HKOE_BIT, LOW);
                 auto msg =
-                    MessageFormatter::enumerationPositionAndID(keyboardFormation.ownIndex, UniqueID::calculate());
+                    MessageFormatter::enumerationPositionAndID(KeyboardFormation.ownIndex, UniqueID::calculate());
                 CAN_TX(ownCANID, msg.data(), msg.size());
 
                 thisAnnounced = true;
 
                 if (!eastConnected) {
                     // This is the eastmost keyboard; also send "done" message
-                    keyboardFormation.isEastMost = true;
+                    KeyboardFormation.isEastMost = true;
 
                     auto msg = MessageFormatter::enumerationDone();
                     CAN_TX(ownCANID, msg.data(), msg.size());
 
                     allDone = true;
                 } else {
-                    keyboardFormation.isEastMost = false;
+                    KeyboardFormation.isEastMost = false;
                 }
             }
         }
@@ -352,7 +403,9 @@ void setup()
     }
 
     // Set up audio generation and output
-    audioState.mutex = xSemaphoreCreateMutex();
+    AudioState.mutex = xSemaphoreCreateMutex();
+    AudioState.volumeLevel.set(7);
+    AudioState.waveformType = WaveformName::SAWTOOTH;
 
     analogWriteResolution(16 /* bits */);
     audioSampleClock.setup(TIM6);
@@ -363,6 +416,10 @@ void setup()
     // Set up task handles
     TaskHandle_t scanKeysHandle = nullptr;
     xTaskCreate(scanKeysTask, "scanKeys", 1024, nullptr, 2, &scanKeysHandle);
+
+    TaskHandle_t processEventsHandle = nullptr;
+    xTaskCreate(processEventsTask, "processEvents", 1024, nullptr, 2, &processEventsHandle);
+    eventQueue = xQueueCreate(10, sizeof(GenericEvent));
 
     TaskHandle_t displayUpdateHandle = nullptr;
     xTaskCreate(displayUpdateTask, "displayUpdate", 1024, nullptr, 1, &displayUpdateHandle);

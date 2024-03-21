@@ -1,6 +1,7 @@
 #include "QuadratureEncoder.hpp"
+#include <cmath>
 
-QuadratureEncoder::QuadratureEncoder(): position(0), prevState(0), lastDirection(Direction::Unknown) {}
+QuadratureEncoder::QuadratureEncoder(): oldPosition(0), position(0), prevState(0), lastDirection(Direction::Unknown) {}
 
 void QuadratureEncoder::update(uint8_t currentState)
 {
@@ -30,14 +31,13 @@ void QuadratureEncoder::update(uint8_t currentState)
     case 0b1100: // 11 -> 00
     case 0b1001: // 10 -> 01
         if (lastDirection == Direction::Clockwise) {
-            position++; // Assume CW if last direction was CW
+            position += 2; // Assume CW if last direction was CW
         } else if (lastDirection == Direction::Counterclockwise) {
-            position--; // Assume CCW if last direction was CCW
+            position -= 2; // Assume CCW if last direction was CCW
         }
         // If lastDirection is Unknown, do nothing
         break;
     default:
-        // An unhandled case indicates an unexpected sequence or error.
         break;
     }
 
@@ -45,7 +45,13 @@ void QuadratureEncoder::update(uint8_t currentState)
 }
 
 // Get the current position
-int QuadratureEncoder::getPosition() const
+int QuadratureEncoder::getChange()
 {
-    return position;
+    auto change = position - oldPosition;
+    if (std::abs(change) >= 2) {
+        oldPosition = position;
+        return change / 2;
+    } else {
+        return 0;
+    }
 }

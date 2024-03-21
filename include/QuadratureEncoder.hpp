@@ -7,10 +7,10 @@ public:
 
     QuadratureEncoder();
     void update(uint8_t currentState);
-    int getPosition() const;
+    int getChange();
 
 private:
-    int position; // Encoder position
+    int oldPosition, position; // Encoder position
     uint8_t prevState; // Previous state of the encoder signals
     Direction lastDirection;
 };
