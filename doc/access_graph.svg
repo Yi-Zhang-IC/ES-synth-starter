@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<svg width="1054pt" height="332pt" viewBox="0.00 0.00 1053.70 332.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 328)">
+<title>%0</title>
+<polygon fill="#ffffff" stroke="transparent" points="-4,4 -4,-328 1049.698,-328 1049.698,4 -4,4"/>
+<!-- AudioState -->
+<g id="node1" class="node">
+<title>AudioState</title>
+<ellipse fill="none" stroke="#000000" cx="620.6211" cy="-234" rx="54.472" ry="18"/>
+<text text-anchor="middle" x="620.6211" y="-229.8" font-family="Times,serif" font-size="14.00" fill="#000000">AudioState</text>
+</g>
+<!-- scanKeysTask -->
+<g id="node2" class="node">
+<title>scanKeysTask</title>
+<ellipse fill="none" stroke="#000000" cx="555.6211" cy="-162" rx="66.6132" ry="18"/>
+<text text-anchor="middle" x="555.6211" y="-157.8" font-family="Times,serif" font-size="14.00" fill="#000000">scanKeysTask</text>
+</g>
+<!-- AudioState&#45;&gt;scanKeysTask -->
+<g id="edge1" class="edge">
+<title>AudioState-&gt;scanKeysTask</title>
+<path fill="none" stroke="#000000" d="M604.8864,-216.5708C596.8818,-207.7041 587.0087,-196.7678 578.208,-187.0194"/>
+<polygon fill="#000000" stroke="#000000" points="580.7352,-184.5956 571.4362,-179.5182 575.5393,-189.2863 580.7352,-184.5956"/>
+</g>
+<!-- displayUpdateTask -->
+<g id="node6" class="node">
+<title>displayUpdateTask</title>
+<ellipse fill="none" stroke="#000000" cx="782.6211" cy="-162" rx="85.6744" ry="18"/>
+<text text-anchor="middle" x="782.6211" y="-157.8" font-family="Times,serif" font-size="14.00" fill="#000000">displayUpdateTask</text>
+</g>
+<!-- AudioState&#45;&gt;displayUpdateTask -->
+<g id="edge5" class="edge">
+<title>AudioState-&gt;displayUpdateTask</title>
+<path fill="none" stroke="#000000" d="M653.4042,-219.4297C677.2836,-208.8167 709.9533,-194.2968 736.468,-182.5125"/>
+<polygon fill="#000000" stroke="#000000" points="738.2138,-185.5668 745.9304,-178.307 735.3707,-179.1701 738.2138,-185.5668"/>
+</g>
+<!-- applyEventsTask -->
+<g id="node7" class="node">
+<title>applyEventsTask</title>
+<ellipse fill="none" stroke="#000000" cx="659.6211" cy="-18" rx="77.5897" ry="18"/>
+<text text-anchor="middle" x="659.6211" y="-13.8" font-family="Times,serif" font-size="14.00" fill="#000000">applyEventsTask</text>
+</g>
+<!-- AudioState&#45;&gt;applyEventsTask -->
+<g id="edge6" class="edge">
+<title>AudioState-&gt;applyEventsTask</title>
+<path fill="none" stroke="#000000" d="M616.5471,-216.0263C617.6057,-205.5351 620.3557,-192.0351 622.6211,-180 631.444,-133.1268 640.6793,-78.4187 648.5324,-46.0776"/>
+<polygon fill="#000000" stroke="#000000" points="652.0206,-46.5691 651.1401,-36.0109 645.2442,-44.8137 652.0206,-46.5691"/>
+</g>
+<!-- generateSamplesTask -->
+<g id="node8" class="node">
+<title>generateSamplesTask</title>
+<ellipse fill="none" stroke="#000000" cx="238.6211" cy="-162" rx="95.4617" ry="18"/>
+<text text-anchor="middle" x="238.6211" y="-157.8" font-family="Times,serif" font-size="14.00" fill="#000000">generateSamplesTask</text>
+</g>
+<!-- AudioState&#45;&gt;generateSamplesTask -->
+<g id="edge9" class="edge">
+<title>AudioState-&gt;generateSamplesTask</title>
+<path fill="none" stroke="#000000" d="M573.0129,-225.0267C508.6992,-212.9048 393.2697,-191.1484 316.2995,-176.641"/>
+<polygon fill="#000000" stroke="#000000" points="316.6481,-173.1451 306.1728,-174.7323 315.3515,-180.024 316.6481,-173.1451"/>
+</g>
+<!-- eventQueue -->
+<g id="node3" class="node">
+<title>eventQueue</title>
+<ellipse fill="none" stroke="#000000" cx="565.6211" cy="-90" rx="57.305" ry="18"/>
+<text text-anchor="middle" x="565.6211" y="-85.8" font-family="Times,serif" font-size="14.00" fill="#000000">eventQueue</text>
+</g>
+<!-- scanKeysTask&#45;&gt;eventQueue -->
+<g id="edge2" class="edge">
+<title>scanKeysTask-&gt;eventQueue</title>
+<path fill="none" stroke="#000000" d="M558.1445,-143.8314C559.214,-136.131 560.4858,-126.9743 561.6743,-118.4166"/>
+<polygon fill="#000000" stroke="#000000" points="565.1546,-118.7997 563.0637,-108.4133 558.2212,-117.8367 565.1546,-118.7997"/>
+</g>
+<!-- canTxMsgQueue -->
+<g id="node4" class="node">
+<title>canTxMsgQueue</title>
+<ellipse fill="none" stroke="#000000" cx="412.6211" cy="-90" rx="77.5723" ry="18"/>
+<text text-anchor="middle" x="412.6211" y="-85.8" font-family="Times,serif" font-size="14.00" fill="#000000">canTxMsgQueue</text>
+</g>
+<!-- scanKeysTask&#45;&gt;canTxMsgQueue -->
+<g id="edge3" class="edge">
+<title>scanKeysTask-&gt;canTxMsgQueue</title>
+<path fill="none" stroke="#000000" d="M523.8848,-146.0209C503.4374,-135.7257 476.6284,-122.2275 454.4497,-111.0606"/>
+<polygon fill="#000000" stroke="#000000" points="455.7659,-107.8047 445.2601,-106.4336 452.6179,-114.0569 455.7659,-107.8047"/>
+</g>
+<!-- eventQueue&#45;&gt;applyEventsTask -->
+<g id="edge7" class="edge">
+<title>eventQueue-&gt;applyEventsTask</title>
+<path fill="none" stroke="#000000" d="M587.4228,-73.3008C599.7292,-63.8746 615.3079,-51.942 628.8415,-41.5759"/>
+<polygon fill="#000000" stroke="#000000" points="631.1457,-44.2197 636.9562,-35.3603 626.8891,-38.6626 631.1457,-44.2197"/>
+</g>
+<!-- canTxTask -->
+<g id="node11" class="node">
+<title>canTxTask</title>
+<ellipse fill="none" stroke="#000000" cx="343.6211" cy="-18" rx="53.8731" ry="18"/>
+<text text-anchor="middle" x="343.6211" y="-13.8" font-family="Times,serif" font-size="14.00" fill="#000000">canTxTask</text>
+</g>
+<!-- canTxMsgQueue&#45;&gt;canTxTask -->
+<g id="edge12" class="edge">
+<title>canTxMsgQueue-&gt;canTxTask</title>
+<path fill="none" stroke="#000000" d="M395.5649,-72.2022C387.0626,-63.3303 376.6423,-52.4569 367.3722,-42.7837"/>
+<polygon fill="#000000" stroke="#000000" points="369.689,-40.1428 360.243,-35.3446 364.6351,-44.9862 369.689,-40.1428"/>
+</g>
+<!-- KeyboardFormation -->
+<g id="node5" class="node">
+<title>KeyboardFormation</title>
+<ellipse fill="none" stroke="#000000" cx="782.6211" cy="-234" rx="89.1896" ry="18"/>
+<text text-anchor="middle" x="782.6211" y="-229.8" font-family="Times,serif" font-size="14.00" fill="#000000">KeyboardFormation</text>
+</g>
+<!-- KeyboardFormation&#45;&gt;displayUpdateTask -->
+<g id="edge4" class="edge">
+<title>KeyboardFormation-&gt;displayUpdateTask</title>
+<path fill="none" stroke="#000000" d="M782.6211,-215.8314C782.6211,-208.131 782.6211,-198.9743 782.6211,-190.4166"/>
+<polygon fill="#000000" stroke="#000000" points="786.1212,-190.4132 782.6211,-180.4133 779.1212,-190.4133 786.1212,-190.4132"/>
+</g>
+<!-- applyEventsTask&#45;&gt;AudioState -->
+<g id="edge8" class="edge">
+<title>applyEventsTask-&gt;AudioState</title>
+<path fill="none" stroke="#000000" d="M662.2362,-36.0109C660.7725,-65.9498 650.4413,-127.8281 640.6211,-180 639.0106,-188.5562 637.1551,-197.8528 635.0281,-206.2823"/>
+<polygon fill="#000000" stroke="#000000" points="631.6257,-205.4528 632.2971,-216.0263 638.366,-207.3419 631.6257,-205.4528"/>
+</g>
+<!-- generatedSamples -->
+<g id="node9" class="node">
+<title>generatedSamples</title>
+<ellipse fill="none" stroke="#000000" cx="100.6211" cy="-90" rx="81.0782" ry="18"/>
+<text text-anchor="middle" x="100.6211" y="-85.8" font-family="Times,serif" font-size="14.00" fill="#000000">generatedSamples</text>
+</g>
+<!-- generateSamplesTask&#45;&gt;generatedSamples -->
+<g id="edge10" class="edge">
+<title>generateSamplesTask-&gt;generatedSamples</title>
+<path fill="none" stroke="#000000" d="M205.917,-144.937C186.7021,-134.9118 162.2375,-122.1477 141.7268,-111.4465"/>
+<polygon fill="#000000" stroke="#000000" points="143.0992,-108.2148 132.6144,-106.6921 139.8612,-114.4209 143.0992,-108.2148"/>
+</g>
+<!-- isrOutputAudioSample -->
+<g id="node15" class="node">
+<title>isrOutputAudioSample</title>
+<ellipse fill="none" stroke="#000000" cx="100.6211" cy="-18" rx="100.7423" ry="18"/>
+<text text-anchor="middle" x="100.6211" y="-13.8" font-family="Times,serif" font-size="14.00" fill="#000000">isrOutputAudioSample</text>
+</g>
+<!-- generatedSamples&#45;&gt;isrOutputAudioSample -->
+<g id="edge16" class="edge">
+<title>generatedSamples-&gt;isrOutputAudioSample</title>
+<path fill="none" stroke="#000000" d="M100.6211,-71.8314C100.6211,-64.131 100.6211,-54.9743 100.6211,-46.4166"/>
+<polygon fill="#000000" stroke="#000000" points="104.1212,-46.4132 100.6211,-36.4133 97.1212,-46.4133 104.1212,-46.4132"/>
+</g>
+<!-- ownCANID -->
+<g id="node10" class="node">
+<title>ownCANID</title>
+<ellipse fill="none" stroke="#000000" cx="258.6211" cy="-90" rx="58.4687" ry="18"/>
+<text text-anchor="middle" x="258.6211" y="-85.8" font-family="Times,serif" font-size="14.00" fill="#000000">ownCANID</text>
+</g>
+<!-- ownCANID&#45;&gt;canTxTask -->
+<g id="edge11" class="edge">
+<title>ownCANID-&gt;canTxTask</title>
+<path fill="none" stroke="#000000" d="M278.7649,-72.937C289.8799,-63.522 303.8468,-51.6912 315.97,-41.4221"/>
+<polygon fill="#000000" stroke="#000000" points="318.2536,-44.0747 323.6219,-34.9405 313.7292,-38.7333 318.2536,-44.0747"/>
+</g>
+<!-- canRxMsgQueue -->
+<g id="node12" class="node">
+<title>canRxMsgQueue</title>
+<ellipse fill="none" stroke="#000000" cx="967.6211" cy="-234" rx="78.154" ry="18"/>
+<text text-anchor="middle" x="967.6211" y="-229.8" font-family="Times,serif" font-size="14.00" fill="#000000">canRxMsgQueue</text>
+</g>
+<!-- canRxTask -->
+<g id="node13" class="node">
+<title>canRxTask</title>
+<ellipse fill="none" stroke="#000000" cx="954.6211" cy="-162" rx="54.4546" ry="18"/>
+<text text-anchor="middle" x="954.6211" y="-157.8" font-family="Times,serif" font-size="14.00" fill="#000000">canRxTask</text>
+</g>
+<!-- canRxMsgQueue&#45;&gt;canRxTask -->
+<g id="edge13" class="edge">
+<title>canRxMsgQueue-&gt;canRxTask</title>
+<path fill="none" stroke="#000000" d="M964.3406,-215.8314C962.9503,-208.131 961.297,-198.9743 959.7519,-190.4166"/>
+<polygon fill="#000000" stroke="#000000" points="963.1669,-189.6322 957.9457,-180.4133 956.2783,-190.8761 963.1669,-189.6322"/>
+</g>
+<!-- canRxTask&#45;&gt;eventQueue -->
+<g id="edge14" class="edge">
+<title>canRxTask-&gt;eventQueue</title>
+<path fill="none" stroke="#000000" d="M910.7412,-151.2765C899.9394,-148.7655 888.3838,-146.1874 877.6211,-144 791.1256,-126.4205 690.397,-109.6504 627.3139,-99.5897"/>
+<polygon fill="#000000" stroke="#000000" points="627.5627,-96.0854 617.1374,-97.9729 626.4643,-102.9987 627.5627,-96.0854"/>
+</g>
+<!-- canRxISR -->
+<g id="node14" class="node">
+<title>canRxISR</title>
+<ellipse fill="none" stroke="#000000" cx="967.6211" cy="-306" rx="50.9619" ry="18"/>
+<text text-anchor="middle" x="967.6211" y="-301.8" font-family="Times,serif" font-size="14.00" fill="#000000">canRxISR</text>
+</g>
+<!-- canRxISR&#45;&gt;canRxMsgQueue -->
+<g id="edge15" class="edge">
+<title>canRxISR-&gt;canRxMsgQueue</title>
+<path fill="none" stroke="#000000" d="M967.6211,-287.8314C967.6211,-280.131 967.6211,-270.9743 967.6211,-262.4166"/>
+<polygon fill="#000000" stroke="#000000" points="971.1212,-262.4132 967.6211,-252.4133 964.1212,-262.4133 971.1212,-262.4132"/>
+</g>
+</g>
+</svg>
